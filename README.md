@@ -114,6 +114,7 @@ Basic example
 
 ```yaml
 type: custom:aquard-card
+name: Aquard
 
 grid_options:
   columns: full
