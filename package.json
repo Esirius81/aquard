@@ -1,11 +1,11 @@
 {
-  "name": "purespa-card",
-  "version": "0.1.0",
+  "name": "aquard-card",
+  "version": "0.2.0",
   "description": "A custom spa dashboard card for Home Assistant",
   "type": "module",
   "scripts": {
     "build": "node scripts/build.mjs",
-    "check": "npm run build && node --check dist/purespa-card.js"
+    "check": "npm run build && node --check dist/aquard-card.js && node scripts/validate.mjs"
   },
   "license": "MIT"
 }
