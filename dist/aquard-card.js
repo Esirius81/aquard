@@ -361,7 +361,7 @@ const UI_TEXT = Object.freeze({
   brand: "Aquard",
   dashboard: "Water monitoring",
   waterTemperature: "Water Temperature",
-  climateTarget: "Target",
+  climateTarget: "Target temperature:",
   equipmentStatus: "Equipment status",
   waterQualityMeasurements: "Water quality measurements",
   quality: "quality",

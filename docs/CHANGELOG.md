@@ -21,6 +21,7 @@ The format is inspired by Keep a Changelog and follows Semantic Versioning where
 
 ### Changed
 
+- Clarified the temperature-panel target label as `Target temperature:`.
 - Enriched the hero background SVG with more vivid layered water ribbons, luminous wave contours, and denser irregular bubble clusters inspired by the approved concept.
 - Expanded the temperature-gauge ring and responsive footprint so the scale has stronger visual presence around the central droplet.
 - Enlarged and refined the SVG temperature gauge with a taller glass droplet, a synchronized white endpoint marker, and target-only climate text.
