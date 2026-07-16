@@ -2,6 +2,7 @@
 
 const UNAVAILABLE_STATES = new Set(["unknown", "unavailable"]);
 const INACTIVE_CONTROL_STATES = new Set(["off", "uit"]);
+const CLIMATE_SUPPORT_TARGET_TEMPERATURE = 1;
 
 function normalizeConfig(config) {
   if (!config || typeof config !== "object") {
@@ -90,6 +91,46 @@ function readClimate(hass, entityId) {
     unit: "",
   };
 }
+
+function resolveTargetTemperature(hass, entityId) {
+  if (!entityId || !entityId.startsWith("climate.")) return undefined;
+  const stateObj = hass?.states?.[entityId];
+  if (!stateObj || UNAVAILABLE_STATES.has(stateObj.state)) return undefined;
+  const attributes = stateObj.attributes ?? {};
+  const target = Number(attributes.temperature);
+  const supportedFeatures = Number(attributes.supported_features);
+  if (!Number.isFinite(target) || !Number.isFinite(supportedFeatures) || !(supportedFeatures & CLIMATE_SUPPORT_TARGET_TEMPERATURE)) return undefined;
+  const configuredStep = Number(attributes.target_temp_step);
+  const step = Number.isFinite(configuredStep) && configuredStep > 0 ? configuredStep : 1;
+  const configuredMin = Number(attributes.min_temp);
+  const configuredMax = Number(attributes.max_temp);
+  return {
+    entityId,
+    target,
+    step,
+    min: Number.isFinite(configuredMin) ? configuredMin : -Infinity,
+    max: Number.isFinite(configuredMax) ? configuredMax : Infinity,
+    unit: attributes.temperature_unit ?? "",
+    stateObj,
+  };
+}
+
+function getTargetTemperatureAdjustment(control, direction) {
+  if (!control || (direction !== -1 && direction !== 1)) return undefined;
+  const unclamped = control.target + (control.step * direction);
+  const temperature = roundToStep(Math.min(control.max, Math.max(control.min, unclamped)), control.step);
+  if (Math.abs(temperature - control.target) < Number.EPSILON) return undefined;
+  return { temperature, domain: "climate", service: "set_temperature", data: { entity_id: control.entityId, temperature } };
+}
+
+function formatTargetTemperature(value, unit, step = 1) {
+  const decimals = Math.min(3, decimalPlaces(step));
+  const formatted = new Intl.NumberFormat(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals }).format(value);
+  return { value: formatted, unit };
+}
+
+function roundToStep(value, step) { return Number(value.toFixed(Math.min(6, decimalPlaces(step)))); }
+function decimalPlaces(value) { const text = String(value); return text.includes(".") ? text.length - text.indexOf(".") - 1 : 0; }
 
 function titleCase(value) {
   return String(value).replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
@@ -314,6 +355,16 @@ function renderStatusIndicator(status) {
   </svg>`;
 }
 
+function renderTargetArrow(direction) {
+  const isLeft = direction === "decrease";
+  const points = isLeft ? "31 19 20 28 31 37" : "25 19 36 28 25 37";
+  return `<svg class="target-arrow-svg" viewBox="0 0 56 56" aria-hidden="true">
+    <path class="target-button-glass" d="M13 5 H43 Q51 5 51 13 V43 Q51 51 43 51 H13 Q5 51 5 43 V13 Q5 5 13 5Z"/>
+    <path class="target-button-highlight" d="M13 8 H43 Q47 8 48 12"/>
+    <polyline class="target-arrow-chevron" points="${points}"/>
+  </svg>`;
+}
+
 const styles = `
   :host {
     display:block; width:100%; min-width:0; max-width:none; box-sizing:border-box; container-type:inline-size;
@@ -339,11 +390,12 @@ const styles = `
   .status-summary{position:absolute;right:0;bottom:0;z-index:2;display:flex;width:clamp(150px,55%,270px);height:68px;flex-direction:column;justify-content:center;gap:0;padding:10px 14px;border:1px solid var(--aq-border);border-radius:var(--aq-md);background:var(--aq-surface);box-shadow:inset 0 1px rgba(255,255,255,.03),0 10px 24px rgba(0,0,0,.13)}.status-summary .status-support{position:relative;padding-top:7px}.status-summary .status-support::before{position:absolute;top:3px;left:50%;width:96%;height:1px;background:currentColor;content:"";opacity:.18;transform:translateX(-50%)}
   .status-orb{position:relative;display:grid;width:clamp(120px,16cqw,165px);aspect-ratio:1;flex:0 0 auto;place-items:center;color:var(--aq-green);--aq-status-color:var(--aq-green)}.status-indicator-svg{display:block;width:100%;height:100%;overflow:visible}.status-ring{fill:none;stroke:var(--aq-status-color);filter:url(#aquard-status-glow)}.status-ring-highlight,.status-ring-reflection{fill:none;stroke:var(--aq-gauge-highlight);stroke-linecap:round}.status-ring-highlight{stroke-width:2;opacity:.34}.status-ring-reflection{stroke-width:1.5;opacity:.2}.status-symbol{fill:none;stroke:var(--aq-status-color);stroke-width:7;stroke-linecap:round;stroke-linejoin:round;filter:url(#aquard-status-glow)}.status-symbol-fill{fill:var(--aq-status-color);filter:url(#aquard-status-glow)}.status-sparkle{fill:var(--aq-status-color);stroke:var(--aq-status-color);stroke-width:2;stroke-linecap:round;opacity:.55}.status-monitor .status-orb{--aq-status-color:var(--aq-yellow)}.status-action_needed .status-orb{--aq-status-color:var(--aq-orange)}.status-alert .status-orb{--aq-status-color:var(--aq-red)}.status-unknown .status-orb{--aq-status-color:var(--aq-muted)}.status-monitor .status-dot{background:var(--aq-yellow);box-shadow:0 0 10px color-mix(in srgb,var(--aq-yellow) 45%,transparent)}.status-action_needed .status-dot{background:var(--aq-orange);box-shadow:0 0 10px color-mix(in srgb,var(--aq-orange) 45%,transparent)}.status-alert .status-dot{background:var(--aq-red);box-shadow:0 0 10px rgba(255,100,116,.45)}.status-unknown .status-dot{background:var(--aq-muted);box-shadow:none}
   .temperature-panel{background:radial-gradient(circle at 80% 45%,rgba(13,174,220,.13),transparent 38%),linear-gradient(145deg,rgba(8,40,57,.96),rgba(5,24,37,.9))}.temperature-copy{display:flex;flex-direction:column;justify-content:center}.temperature-reading{display:flex;align-items:baseline;margin:13px 0 18px;white-space:nowrap;font-size:clamp(3.2rem,8.2cqw,6.1rem);font-weight:620;font-variant-numeric:tabular-nums;letter-spacing:-.06em;line-height:.9}.temperature-value{display:inline-flex;align-items:baseline}.temperature-decimal{font-size:.56em;font-weight:580;letter-spacing:-.035em}.temperature-unit{margin-left:.3em;color:var(--aq-muted);font-size:.27em;font-weight:500;letter-spacing:0}.metric-unit{margin-left:.22em;color:var(--aq-muted);font-size:.35em;font-weight:500;letter-spacing:0}.climate-line{flex-wrap:wrap;gap:6px 10px;padding-top:14px;border-top:1px solid rgba(89,180,205,.15);font-size:.85rem}.climate-label{color:var(--aq-blue)}.climate-value{overflow-wrap:anywhere;color:#c5dce6}
+  .temperature-copy:has(.target-control) .temperature-reading{margin:8px 0}.target-control{padding-top:6px;border-top:1px solid rgba(89,180,205,.15)}.target-label{margin-bottom:3px;color:var(--aq-blue);font-size:.78rem}.target-control-row{display:grid;grid-template-columns:44px minmax(58px,1fr) 44px;align-items:center;gap:7px}.target-button{display:grid;width:44px;height:44px;padding:0;place-items:center;border:0;border-radius:13px;color:var(--aq-blue);background:transparent;cursor:pointer;transition:transform 120ms ease,opacity 160ms ease,filter 160ms ease}.target-button:hover:not(:disabled){filter:brightness(1.15)}.target-button:active:not(:disabled),.target-button.pending{transform:scale(.94);filter:brightness(1.25)}.target-button:focus-visible{outline:2px solid var(--aq-blue);outline-offset:2px}.target-button:disabled{cursor:default;opacity:.38}.target-button.pending{opacity:.72}.target-arrow-svg{display:block;width:44px;height:44px;overflow:visible}.target-button-glass{fill:rgba(7,31,45,.5);stroke:var(--aq-blue);stroke-width:1.5;filter:drop-shadow(0 0 5px rgba(24,200,243,.32))}.target-button-highlight{fill:none;stroke:var(--aq-gauge-highlight);stroke-width:1;stroke-linecap:round;opacity:.38}.target-arrow-chevron{fill:none;stroke:var(--aq-blue);stroke-width:5;stroke-linecap:round;stroke-linejoin:round;filter:drop-shadow(0 0 3px rgba(24,200,243,.55))}.target-display{display:flex;min-width:0;align-items:baseline;justify-content:center;white-space:nowrap;color:var(--aq-text);font-variant-numeric:tabular-nums}.target-number{font-size:clamp(1.55rem,3.2cqw,2.1rem);font-weight:650;letter-spacing:-.035em}.target-unit{margin-left:.3em;color:var(--aq-muted);font-size:.75rem;font-weight:500}
   .temperature-gauge{position:relative;display:grid;width:clamp(112px,16.5cqw,170px);aspect-ratio:1;align-self:center;flex:0 0 auto;place-items:center}.temperature-gauge-svg{display:block;width:100%;height:100%;overflow:visible}.temperature-gauge-track,.temperature-gauge-progress{fill:none;stroke-width:11;stroke-linecap:round}.temperature-gauge-track{stroke:var(--aq-gauge-track)}.temperature-gauge-progress{stroke:var(--aq-gauge-progress);filter:drop-shadow(0 0 6px rgba(24,200,243,.48));transition:stroke-dasharray var(--aq-motion)}.temperature-gauge-marker{fill:var(--aq-gauge-marker);filter:drop-shadow(0 0 4px var(--aq-gauge-marker));transition:cx var(--aq-motion),cy var(--aq-motion)}.temperature-gauge-droplet{color:var(--aq-gauge-progress)}.temperature-gauge-drop-edge{fill:none;stroke:var(--aq-gauge-highlight);stroke-width:1.35;stroke-opacity:.62}
   .equipment-section{margin-top:var(--aq-gap)}.equipment-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--aq-gap)}.equipment-tile{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;width:100%;min-width:0;gap:14px;padding:clamp(14px,2cqw,20px);overflow:hidden;border:1px solid var(--aq-border);border-radius:var(--aq-md);color:inherit;background:linear-gradient(145deg,rgba(8,36,51,.9),rgba(6,25,38,.78));font:inherit;text-align:left;cursor:pointer;transition:transform 120ms ease,border-color 180ms ease,background 180ms ease,box-shadow 180ms ease}.equipment-tile:hover:not(:disabled){border-color:rgba(55,190,222,.4)}.equipment-tile:active:not(:disabled){transform:scale(.985)}.equipment-tile:focus-visible{outline:2px solid var(--aq-blue);outline-offset:2px}.equipment-tile:disabled{cursor:default}.equipment-tile.active{border-color:rgba(67,230,108,.3);background:linear-gradient(145deg,rgba(9,48,55,.94),rgba(6,30,40,.82));box-shadow:inset 0 0 22px rgba(67,230,108,.035)}.equipment-tile.pending{opacity:.78}
   .equipment-icon{display:grid;width:clamp(48px,5.8cqw,62px);aspect-ratio:1;place-items:center;border:2px solid var(--aq-blue);border-radius:50%;color:var(--aq-blue);box-shadow:0 0 18px rgba(25,199,242,.13),inset 0 0 14px rgba(25,199,242,.08)}.equipment-icon ha-icon{width:27px;height:27px;--mdc-icon-size:27px}.equipment-copy{min-width:0}.equipment-name{color:#dcebf1;font-size:clamp(.92rem,1.7cqw,1.08rem);font-weight:600}.equipment-value{margin-top:4px;overflow-wrap:anywhere;color:#65daf3;font-size:.86rem}.available .equipment-value{color:var(--aq-green)}.pending .status-dot{border:2px solid rgba(101,218,243,.28);border-top-color:var(--aq-blue);background:transparent;box-shadow:none;animation:aq-spin .7s linear infinite}@keyframes aq-spin{to{transform:rotate(360deg)}}
   .measurement-section{margin-top:var(--aq-gap);overflow:hidden;border:1px solid var(--aq-border);border-radius:var(--aq-lg);background:rgba(5,24,36,.72)}.metric-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;background:rgba(62,176,207,.16)}.metric-tile{min-width:0;padding:clamp(17px,2.3cqw,24px);overflow:hidden;background:linear-gradient(145deg,rgba(8,36,51,.94),rgba(6,25,38,.88));--range-intensity:0;--range-opacity:.42;--current-position:50%}.metric-heading,.metric-label,.metric-reading-row,.metric-footer{display:flex;align-items:center;min-width:0}.metric-label{gap:9px}.metric-icon{width:23px;height:23px;flex:0 0 auto;color:var(--aq-blue);--mdc-icon-size:23px}.metric-name{color:#bcd4df;font-size:.9rem;font-weight:620;letter-spacing:.02em}.metric-reading-row{justify-content:space-between;gap:10px;margin-top:14px}.metric-reading{min-width:0;overflow-wrap:anywhere;font-size:clamp(1.85rem,3.8cqw,2.7rem);font-weight:590;letter-spacing:-.035em}.metric-quality-mark{display:grid;width:31px;height:31px;flex:0 0 auto;place-items:center;border:2px solid var(--aq-green);border-radius:50%;color:var(--aq-green);box-shadow:0 0 12px rgba(67,230,108,.14)}.metric-quality-mark ha-icon{width:18px;height:18px;--mdc-icon-size:18px}.quality-monitor .metric-quality-mark{border-color:var(--aq-yellow);color:var(--aq-yellow)}.quality-action_needed .metric-quality-mark{border-color:var(--aq-orange);color:var(--aq-orange)}.quality-alert .metric-quality-mark{border-color:var(--aq-red);color:var(--aq-red)}.unavailable .metric-quality-mark,.not-configured .metric-quality-mark{border-color:var(--aq-muted);color:var(--aq-muted);opacity:.55}.metric-meter{position:relative;height:8px;margin-top:16px;overflow:visible;border-radius:999px;color:var(--aq-muted);background:rgba(37,68,82,.5);isolation:isolate}.metric-meter::before{position:absolute;inset:0;z-index:0;border-radius:inherit;background:currentColor;opacity:var(--range-opacity,.4);content:""}.range-ideal .metric-meter{color:var(--aq-green);--range-opacity:.82}.range-low .metric-meter{color:var(--aq-blue)}.range-high .metric-meter{color:var(--aq-red)}.range-neutral .metric-meter{color:var(--aq-muted);--range-opacity:.28}.metric-value-marker{position:absolute;top:50%;left:clamp(4px,var(--current-position),calc(100% - 4px));z-index:2;width:2px;height:16px;border-radius:2px;background:#f4fbff;box-shadow:0 0 5px rgba(255,255,255,.8);transform:translate(-50%,-50%);transition:left var(--aq-motion)}.range-neutral .metric-value-marker{display:none}.metric-footer{justify-content:space-between;gap:8px;margin-top:10px}.metric-quality{min-width:0;color:var(--aq-muted);font-size:.7rem;overflow-wrap:anywhere}.metric-state{min-width:0;flex:0 0 auto;gap:5px}.quality-excellent .metric-quality{color:var(--aq-green)}.quality-monitor .metric-quality{color:var(--aq-yellow)}.quality-action_needed .metric-quality{color:var(--aq-orange)}.quality-alert .metric-quality{color:var(--aq-red)}
-  @media(prefers-reduced-motion:reduce){.equipment-tile,.temperature-gauge-progress,.temperature-gauge-marker{transition-duration:.01ms}.pending .status-dot{animation-duration:1.4s}}
+  @media(prefers-reduced-motion:reduce){.equipment-tile,.target-button,.temperature-gauge-progress,.temperature-gauge-marker{transition-duration:.01ms}.pending .status-dot{animation-duration:1.4s}}
   @container(max-width:760px){.hero-grid{grid-template-columns:minmax(0,1fr)}.hero-panel{min-height:205px}.metric-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
   @container(max-width:560px){ha-card{border-radius:22px}.header-availability{display:none}.status-panel,.temperature-panel{min-height:195px;padding:20px}.status-orb{width:92px}.temperature-gauge{width:116px}.equipment-grid{grid-template-columns:minmax(0,1fr)}}
   @container(max-width:390px){.status-panel,.temperature-panel{min-height:0}.status-orb{width:82px}.temperature-gauge{width:102px}.status-headline{font-size:2rem}.temperature-reading{font-size:3.1rem}.metric-grid{grid-template-columns:minmax(0,1fr)}.metric-state-text{display:none}}
@@ -361,7 +413,7 @@ const UI_TEXT = Object.freeze({
   brand: "Aquard",
   dashboard: "Water monitoring",
   waterTemperature: "Water Temperature",
-  climateTarget: "Target temperature:",
+  climateTarget: "Target temperature",
   equipmentStatus: "Equipment status",
   waterQualityMeasurements: "Water quality measurements",
   quality: "quality",
@@ -444,6 +496,7 @@ export class AquardCard extends HTMLElement {
     super();
     this.attachShadow({ mode: "open" });
     this._pendingControls = new Set();
+    this._pendingTarget = null;
   }
 
   setConfig(config) {
@@ -453,6 +506,7 @@ export class AquardCard extends HTMLElement {
 
   set hass(hass) {
     this._hass = hass;
+    this._reconcilePendingTarget();
     this._render();
   }
 
@@ -484,7 +538,9 @@ export class AquardCard extends HTMLElement {
       [UI_TEXT.filter, readSwitch(this._hass, entities.filter), "filter", entities.filter, false],
       [UI_TEXT.bubbles, readEntity(this._hass, entities.bubbles), "bubbles", entities.bubbles, true],
     ];
-    const climate = readClimate(this._hass, entities.climate);
+    const targetControl = resolveTargetTemperature(this._hass, entities.climate);
+    const displayedTarget = this._pendingTarget?.entityId === targetControl?.entityId ? this._pendingTarget.value : targetControl?.target;
+    const displayControl = targetControl ? { ...targetControl, target: displayedTarget } : undefined;
 
     this.shadowRoot.innerHTML = `
       <style>${styles}</style>
@@ -505,7 +561,7 @@ export class AquardCard extends HTMLElement {
               <div class="status-summary"><div class="status-action"></div><div class="status-support"><span class="status-dot"></span><span class="status-support-text"></span></div></div>
             </section>
             <section class="hero-panel temperature-panel ${temperature.availabilityClass}">
-              <div class="temperature-copy"><div class="section-label temperature-label"></div><div class="temperature-reading"><span class="temperature-value"><span class="temperature-whole"></span><span class="temperature-decimal"></span></span><span class="temperature-unit"></span></div><div class="climate-line"><span class="climate-label"></span><span class="climate-value"></span></div></div>
+              <div class="temperature-copy"><div class="section-label temperature-label"></div><div class="temperature-reading"><span class="temperature-value"><span class="temperature-whole"></span><span class="temperature-decimal"></span></span><span class="temperature-unit"></span></div>${displayControl ? this._renderTargetControl(displayControl) : ""}</div>
               <div class="temperature-gauge">${renderTemperatureGauge(temperature.stateObj?.state)}</div>
             </section>
           </div>
@@ -524,8 +580,12 @@ export class AquardCard extends HTMLElement {
     this._setText(".temperature-label", UI_TEXT.waterTemperature);
     this._setTemperature(temperature.value);
     this._setText(".temperature-unit", temperature.unit);
-    this._setText(".climate-label", UI_TEXT.climateTarget);
-    this._setText(".climate-value", climate.targetValue ?? climate.value);
+    if (displayControl) {
+      const decreaseButton = this.shadowRoot.querySelector('[data-target-direction="-1"]');
+      const increaseButton = this.shadowRoot.querySelector('[data-target-direction="1"]');
+      decreaseButton.addEventListener("click", () => this._adjustTargetTemperature(-1));
+      increaseButton.addEventListener("click", () => this._adjustTargetTemperature(1));
+    }
 
     const equipmentGrid = this.shadowRoot.querySelector(".equipment-grid");
     for (const control of controls) equipmentGrid.append(this._createEquipmentTile(...control));
@@ -575,6 +635,41 @@ export class AquardCard extends HTMLElement {
       this._pendingControls.delete(entityId);
       this._render();
     }
+  }
+
+  _renderTargetControl(control) {
+    const formatted = formatTargetTemperature(control.target, control.unit, control.step);
+    const pendingDirection = this._pendingTarget?.direction;
+    const decreaseDisabled = !getTargetTemperatureAdjustment(control, -1) || Boolean(this._pendingTarget);
+    const increaseDisabled = !getTargetTemperatureAdjustment(control, 1) || Boolean(this._pendingTarget);
+    return `<div class="target-control"><div class="target-label">${UI_TEXT.climateTarget}</div><div class="target-control-row">
+      <button class="target-button${pendingDirection === -1 ? " pending" : ""}" data-target-direction="-1" aria-label="Decrease target temperature" ${decreaseDisabled ? "disabled" : ""}>${renderTargetArrow("decrease")}</button>
+      <div class="target-display"><span class="target-number">${formatted.value}</span><span class="target-unit">${formatted.unit}</span></div>
+      <button class="target-button${pendingDirection === 1 ? " pending" : ""}" data-target-direction="1" aria-label="Increase target temperature" ${increaseDisabled ? "disabled" : ""}>${renderTargetArrow("increase")}</button>
+    </div></div>`;
+  }
+
+  async _adjustTargetTemperature(direction) {
+    if (this._pendingTarget) return;
+    const entityId = this._config?.entities?.climate;
+    const control = resolveTargetTemperature(this._hass, entityId);
+    const adjustment = getTargetTemperatureAdjustment(control, direction);
+    if (!adjustment || typeof this._hass?.callService !== "function") return;
+    this._pendingTarget = { entityId, value: adjustment.temperature, direction };
+    this._render();
+    try {
+      await this._hass.callService(adjustment.domain, adjustment.service, adjustment.data);
+    } catch (error) {
+      console.error(`Aquard could not set target temperature for ${entityId}`, error);
+      this._pendingTarget = null;
+      this._render();
+    }
+  }
+
+  _reconcilePendingTarget() {
+    if (!this._pendingTarget) return;
+    const control = resolveTargetTemperature(this._hass, this._pendingTarget.entityId);
+    if (!control || Math.abs(control.target - this._pendingTarget.value) < 0.000001) this._pendingTarget = null;
   }
 
   _createMetric(label, icon, reading, evaluation) {

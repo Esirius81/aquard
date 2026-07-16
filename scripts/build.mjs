@@ -9,9 +9,10 @@ const helpers = (await read("src/helpers.js")).replace(/^export /gm, "");
 const waterQuality = (await read("src/water-quality.js")).replace(/^export /gm, "");
 const temperatureGauge = (await read("src/components/temperature-gauge.js")).replace(/^export /gm, "");
 const statusIndicator = (await read("src/components/status-indicator.js")).replace(/^export /gm, "");
+const targetTemperatureControl = (await read("src/components/target-temperature-control.js")).replace(/^export /gm, "");
 const styles = (await read("src/styles.js")).replace(/^export /gm, "");
 const card = (await read("src/aquard-card.js")).replace(/^import .*;\r?\n/gm, "");
-const output = `// Aquard - generated file, do not edit directly.\n\n${helpers}\n${waterQuality}\n${temperatureGauge}\n${statusIndicator}\n${styles}\n${card}`;
+const output = `// Aquard - generated file, do not edit directly.\n\n${helpers}\n${waterQuality}\n${temperatureGauge}\n${statusIndicator}\n${targetTemperatureControl}\n${styles}\n${card}`;
 const destination = resolve(root, "dist/aquard-card.js");
 
 await mkdir(dirname(destination), { recursive: true });

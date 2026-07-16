@@ -1,7 +1,8 @@
-import { getControlAction, isControlActive, normalizeConfig, readClimate, readEntity, readSwitch, titleCase } from "./helpers.js";
+import { formatTargetTemperature, getControlAction, getTargetTemperatureAdjustment, isControlActive, normalizeConfig, readEntity, readSwitch, resolveTargetTemperature, titleCase } from "./helpers.js";
 import { evaluateSpaWaterQuality } from "./water-quality.js";
 import { renderTemperatureGauge } from "./components/temperature-gauge.js";
 import { renderStatusIndicator } from "./components/status-indicator.js";
+import { renderTargetArrow } from "./components/target-temperature-control.js";
 import { styles } from "./styles.js";
 
 const METRICS = [
@@ -15,7 +16,7 @@ const UI_TEXT = Object.freeze({
   brand: "Aquard",
   dashboard: "Water monitoring",
   waterTemperature: "Water Temperature",
-  climateTarget: "Target temperature:",
+  climateTarget: "Target temperature",
   equipmentStatus: "Equipment status",
   waterQualityMeasurements: "Water quality measurements",
   quality: "quality",
@@ -98,6 +99,7 @@ export class AquardCard extends HTMLElement {
     super();
     this.attachShadow({ mode: "open" });
     this._pendingControls = new Set();
+    this._pendingTarget = null;
   }
 
   setConfig(config) {
@@ -107,6 +109,7 @@ export class AquardCard extends HTMLElement {
 
   set hass(hass) {
     this._hass = hass;
+    this._reconcilePendingTarget();
     this._render();
   }
 
@@ -138,7 +141,9 @@ export class AquardCard extends HTMLElement {
       [UI_TEXT.filter, readSwitch(this._hass, entities.filter), "filter", entities.filter, false],
       [UI_TEXT.bubbles, readEntity(this._hass, entities.bubbles), "bubbles", entities.bubbles, true],
     ];
-    const climate = readClimate(this._hass, entities.climate);
+    const targetControl = resolveTargetTemperature(this._hass, entities.climate);
+    const displayedTarget = this._pendingTarget?.entityId === targetControl?.entityId ? this._pendingTarget.value : targetControl?.target;
+    const displayControl = targetControl ? { ...targetControl, target: displayedTarget } : undefined;
 
     this.shadowRoot.innerHTML = `
       <style>${styles}</style>
@@ -159,7 +164,7 @@ export class AquardCard extends HTMLElement {
               <div class="status-summary"><div class="status-action"></div><div class="status-support"><span class="status-dot"></span><span class="status-support-text"></span></div></div>
             </section>
             <section class="hero-panel temperature-panel ${temperature.availabilityClass}">
-              <div class="temperature-copy"><div class="section-label temperature-label"></div><div class="temperature-reading"><span class="temperature-value"><span class="temperature-whole"></span><span class="temperature-decimal"></span></span><span class="temperature-unit"></span></div><div class="climate-line"><span class="climate-label"></span><span class="climate-value"></span></div></div>
+              <div class="temperature-copy"><div class="section-label temperature-label"></div><div class="temperature-reading"><span class="temperature-value"><span class="temperature-whole"></span><span class="temperature-decimal"></span></span><span class="temperature-unit"></span></div>${displayControl ? this._renderTargetControl(displayControl) : ""}</div>
               <div class="temperature-gauge">${renderTemperatureGauge(temperature.stateObj?.state)}</div>
             </section>
           </div>
@@ -178,8 +183,12 @@ export class AquardCard extends HTMLElement {
     this._setText(".temperature-label", UI_TEXT.waterTemperature);
     this._setTemperature(temperature.value);
     this._setText(".temperature-unit", temperature.unit);
-    this._setText(".climate-label", UI_TEXT.climateTarget);
-    this._setText(".climate-value", climate.targetValue ?? climate.value);
+    if (displayControl) {
+      const decreaseButton = this.shadowRoot.querySelector('[data-target-direction="-1"]');
+      const increaseButton = this.shadowRoot.querySelector('[data-target-direction="1"]');
+      decreaseButton.addEventListener("click", () => this._adjustTargetTemperature(-1));
+      increaseButton.addEventListener("click", () => this._adjustTargetTemperature(1));
+    }
 
     const equipmentGrid = this.shadowRoot.querySelector(".equipment-grid");
     for (const control of controls) equipmentGrid.append(this._createEquipmentTile(...control));
@@ -229,6 +238,41 @@ export class AquardCard extends HTMLElement {
       this._pendingControls.delete(entityId);
       this._render();
     }
+  }
+
+  _renderTargetControl(control) {
+    const formatted = formatTargetTemperature(control.target, control.unit, control.step);
+    const pendingDirection = this._pendingTarget?.direction;
+    const decreaseDisabled = !getTargetTemperatureAdjustment(control, -1) || Boolean(this._pendingTarget);
+    const increaseDisabled = !getTargetTemperatureAdjustment(control, 1) || Boolean(this._pendingTarget);
+    return `<div class="target-control"><div class="target-label">${UI_TEXT.climateTarget}</div><div class="target-control-row">
+      <button class="target-button${pendingDirection === -1 ? " pending" : ""}" data-target-direction="-1" aria-label="Decrease target temperature" ${decreaseDisabled ? "disabled" : ""}>${renderTargetArrow("decrease")}</button>
+      <div class="target-display"><span class="target-number">${formatted.value}</span><span class="target-unit">${formatted.unit}</span></div>
+      <button class="target-button${pendingDirection === 1 ? " pending" : ""}" data-target-direction="1" aria-label="Increase target temperature" ${increaseDisabled ? "disabled" : ""}>${renderTargetArrow("increase")}</button>
+    </div></div>`;
+  }
+
+  async _adjustTargetTemperature(direction) {
+    if (this._pendingTarget) return;
+    const entityId = this._config?.entities?.climate;
+    const control = resolveTargetTemperature(this._hass, entityId);
+    const adjustment = getTargetTemperatureAdjustment(control, direction);
+    if (!adjustment || typeof this._hass?.callService !== "function") return;
+    this._pendingTarget = { entityId, value: adjustment.temperature, direction };
+    this._render();
+    try {
+      await this._hass.callService(adjustment.domain, adjustment.service, adjustment.data);
+    } catch (error) {
+      console.error(`Aquard could not set target temperature for ${entityId}`, error);
+      this._pendingTarget = null;
+      this._render();
+    }
+  }
+
+  _reconcilePendingTarget() {
+    if (!this._pendingTarget) return;
+    const control = resolveTargetTemperature(this._hass, this._pendingTarget.entityId);
+    if (!control || Math.abs(control.target - this._pendingTarget.value) < 0.000001) this._pendingTarget = null;
   }
 
   _createMetric(label, icon, reading, evaluation) {

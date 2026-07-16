@@ -10,6 +10,7 @@ The format is inspired by Keep a Changelog and follows Semantic Versioning where
 
 ### Added
 
+- Premium interactive target-temperature controls using climate capability detection, optimistic updates, bounds enforcement, and inline SVG arrow buttons.
 - Water Quality Engine V3 with profile-driven Excellent, Monitor, Action Needed, Alert, and Unknown states plus reusable premium SVG status indicators.
 - Responsive inline SVG water-temperature gauge with a glass-like droplet and clamped 0–45 °C progress arc.
 - Initial spa Water Quality Engine using weighted pH, ORP, and TDS evaluation.
@@ -21,7 +22,7 @@ The format is inspired by Keep a Changelog and follows Semantic Versioning where
 
 ### Changed
 
-- Clarified the temperature-panel target label as `Target temperature:`.
+- Replaced the read-only target line with a conditional two-row `Target temperature` control.
 - Enriched the hero background SVG with more vivid layered water ribbons, luminous wave contours, and denser irregular bubble clusters inspired by the approved concept.
 - Expanded the temperature-gauge ring and responsive footprint so the scale has stronger visual presence around the central droplet.
 - Enlarged and refined the SVG temperature gauge with a taller glass droplet, a synchronized white endpoint marker, and target-only climate text.

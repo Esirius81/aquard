@@ -1,5 +1,6 @@
 const UNAVAILABLE_STATES = new Set(["unknown", "unavailable"]);
 const INACTIVE_CONTROL_STATES = new Set(["off", "uit"]);
+const CLIMATE_SUPPORT_TARGET_TEMPERATURE = 1;
 
 export function normalizeConfig(config) {
   if (!config || typeof config !== "object") {
@@ -88,6 +89,46 @@ export function readClimate(hass, entityId) {
     unit: "",
   };
 }
+
+export function resolveTargetTemperature(hass, entityId) {
+  if (!entityId || !entityId.startsWith("climate.")) return undefined;
+  const stateObj = hass?.states?.[entityId];
+  if (!stateObj || UNAVAILABLE_STATES.has(stateObj.state)) return undefined;
+  const attributes = stateObj.attributes ?? {};
+  const target = Number(attributes.temperature);
+  const supportedFeatures = Number(attributes.supported_features);
+  if (!Number.isFinite(target) || !Number.isFinite(supportedFeatures) || !(supportedFeatures & CLIMATE_SUPPORT_TARGET_TEMPERATURE)) return undefined;
+  const configuredStep = Number(attributes.target_temp_step);
+  const step = Number.isFinite(configuredStep) && configuredStep > 0 ? configuredStep : 1;
+  const configuredMin = Number(attributes.min_temp);
+  const configuredMax = Number(attributes.max_temp);
+  return {
+    entityId,
+    target,
+    step,
+    min: Number.isFinite(configuredMin) ? configuredMin : -Infinity,
+    max: Number.isFinite(configuredMax) ? configuredMax : Infinity,
+    unit: attributes.temperature_unit ?? "",
+    stateObj,
+  };
+}
+
+export function getTargetTemperatureAdjustment(control, direction) {
+  if (!control || (direction !== -1 && direction !== 1)) return undefined;
+  const unclamped = control.target + (control.step * direction);
+  const temperature = roundToStep(Math.min(control.max, Math.max(control.min, unclamped)), control.step);
+  if (Math.abs(temperature - control.target) < Number.EPSILON) return undefined;
+  return { temperature, domain: "climate", service: "set_temperature", data: { entity_id: control.entityId, temperature } };
+}
+
+export function formatTargetTemperature(value, unit, step = 1) {
+  const decimals = Math.min(3, decimalPlaces(step));
+  const formatted = new Intl.NumberFormat(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals }).format(value);
+  return { value: formatted, unit };
+}
+
+function roundToStep(value, step) { return Number(value.toFixed(Math.min(6, decimalPlaces(step)))); }
+function decimalPlaces(value) { const text = String(value); return text.includes(".") ? text.length - text.indexOf(".") - 1 : 0; }
 
 export function titleCase(value) {
   return String(value).replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());

@@ -149,6 +149,8 @@ Buttons
 
 The reusable premium status SVG lives in `src/components/status-indicator.js`. It accepts an evaluated status only and contains no profile thresholds or water-quality decisions.
 
+Target-temperature capability, step, bounds, and service payload resolution live in `src/helpers.js`. The reusable premium arrow artwork lives in `src/components/target-temperature-control.js`; the card only coordinates interaction and pending state.
+
 ---
 
 ## Theme System

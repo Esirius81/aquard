@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { getControlAction, isControlActive, normalizeConfig, readClimate, readEntity, readSwitch } from "../src/helpers.js";
+import { formatTargetTemperature, getControlAction, getTargetTemperatureAdjustment, isControlActive, normalizeConfig, readClimate, readEntity, readSwitch, resolveTargetTemperature } from "../src/helpers.js";
 import { evaluateSpaWaterQuality, SPA_WATER_QUALITY_PROFILE } from "../src/water-quality.js";
 import { temperatureToArc } from "../src/components/temperature-gauge.js";
 import { renderStatusIndicator, STATUS_INDICATOR_GEOMETRY } from "../src/components/status-indicator.js";
@@ -37,7 +37,10 @@ const hass = {
     "switch.power": { state: "on", attributes: {} },
     "select.bubbles": { state: "High", attributes: { options: ["Off", "Low", "High"] } },
     "select.bubbles_off": { state: "uit", attributes: { options: ["uit", "hoog"] } },
-    "climate.spa": { state: "heat", attributes: { temperature: 38, temperature_unit: "°C" } },
+    "climate.spa": { state: "heat", attributes: { temperature: 38, temperature_unit: "°C", supported_features: 1, target_temp_step: 0.5, min_temp: 30, max_temp: 40 } },
+    "climate.no_target": { state: "heat", attributes: { supported_features: 1 } },
+    "climate.unsupported": { state: "heat", attributes: { temperature: 36, supported_features: 0 } },
+    "climate.unavailable": { state: "unavailable", attributes: { temperature: 36, supported_features: 1 } },
     "sensor.bad": { state: "unknown", attributes: {} },
   },
 };
@@ -53,6 +56,27 @@ assert.match(climate.value, /^Heat · 38 °C$/);
 assert.equal(climate.targetValue, "38 °C");
 assert.equal(climate.climateState, "heat");
 assert.doesNotMatch(climate.targetValue, /Heat|Heating|Idle|Off/i);
+const targetControl = resolveTargetTemperature(hass, "climate.spa");
+assert.equal(targetControl.target, 38);
+assert.equal(targetControl.step, 0.5);
+assert.equal(getTargetTemperatureAdjustment(targetControl, 1).temperature, 38.5);
+assert.equal(getTargetTemperatureAdjustment(targetControl, -1).temperature, 37.5);
+assert.equal(resolveTargetTemperature(hass, undefined), undefined);
+assert.equal(resolveTargetTemperature(hass, "climate.unavailable"), undefined);
+assert.equal(resolveTargetTemperature(hass, "climate.no_target"), undefined);
+assert.equal(resolveTargetTemperature(hass, "climate.unsupported"), undefined);
+const fallbackStep = resolveTargetTemperature({ states: { "climate.fallback": { state: "heat", attributes: { temperature: 36, supported_features: 1 } } } }, "climate.fallback");
+assert.equal(fallbackStep.step, 1);
+assert.equal(getTargetTemperatureAdjustment({ ...targetControl, target: 30 }, -1), undefined);
+assert.equal(getTargetTemperatureAdjustment({ ...targetControl, target: 40 }, 1), undefined);
+assert.deepEqual(formatTargetTemperature(36.5, "°C", 0.5), { value: new Intl.NumberFormat(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(36.5), unit: "°C" });
+const targetMarkupCard = Object.create(AquardCard.prototype);
+targetMarkupCard._pendingTarget = null;
+const targetMarkup = targetMarkupCard._renderTargetControl(targetControl);
+assert.match(targetMarkup, /class="target-control"/);
+assert.match(targetMarkup, /Decrease target temperature/);
+assert.match(targetMarkup, /Increase target temperature/);
+assert.doesNotMatch(targetMarkup, /Heat|Heating|Idle|Off/i);
 
 assert.deepEqual(getControlAction("switch.power", hass.states["switch.power"]), {
   domain: "switch", service: "toggle", data: { entity_id: "switch.power" },
@@ -129,5 +153,33 @@ for (const status of ["excellent", "monitor", "action_needed", "alert", "unknown
 }
 assert.match(styles, /\.hero-panel\{[^}]*min-height:clamp\(190px,22cqw,225px\)/);
 assert.match(styles, /\.status-orb\{[^}]*width:clamp\(120px,16cqw,165px\)/);
+
+let resolveService;
+let serviceCalls = 0;
+const pendingCard = Object.create(AquardCard.prototype);
+pendingCard._config = { entities: { climate: "climate.spa" } };
+pendingCard._hass = { ...hass, callService: () => { serviceCalls += 1; return new Promise((resolve) => { resolveService = resolve; }); } };
+pendingCard._pendingTarget = null;
+pendingCard._render = () => {};
+const firstRequest = pendingCard._adjustTargetTemperature(1);
+await pendingCard._adjustTargetTemperature(1);
+assert.equal(serviceCalls, 1, "duplicate target calls must be blocked while pending");
+assert.equal(pendingCard._pendingTarget.value, 38.5);
+resolveService();
+await firstRequest;
+pendingCard._hass = { ...pendingCard._hass, states: { ...hass.states, "climate.spa": { ...hass.states["climate.spa"], attributes: { ...hass.states["climate.spa"].attributes, temperature: 38.5 } } } };
+pendingCard._reconcilePendingTarget();
+assert.equal(pendingCard._pendingTarget, null);
+
+const failingCard = Object.create(AquardCard.prototype);
+failingCard._config = { entities: { climate: "climate.spa" } };
+failingCard._hass = { ...hass, callService: async () => { throw new Error("test failure"); } };
+failingCard._pendingTarget = null;
+failingCard._render = () => {};
+const originalError = console.error;
+console.error = () => {};
+await failingCard._adjustTargetTemperature(-1);
+console.error = originalError;
+assert.equal(failingCard._pendingTarget, null, "failed calls must restore the actual Home Assistant target");
 
 console.log("Configuration, state, grid, control, and water-quality validation passed");
