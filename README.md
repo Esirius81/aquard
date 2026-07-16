@@ -249,4 +249,4 @@ Breaking changes may occur until the first stable release.
 
 # License
 
-MIT License
+AGPL-V3
