@@ -46,6 +46,7 @@ The format is inspired by Keep a Changelog and follows Semantic Versioning where
 
 ### Fixed
 
+- Prevented a card-rendering error when a configured climate entity does not expose a supported numeric target temperature.
 - Reduced the `ACTION NEEDED` hero title size so it remains on one line without shifting the layout.
 - Reserved a stable Water Status title area so one-line and two-line states do not shift the score or message.
 

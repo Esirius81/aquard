@@ -539,7 +539,9 @@ export class AquardCard extends HTMLElement {
       [UI_TEXT.bubbles, readEntity(this._hass, entities.bubbles), "bubbles", entities.bubbles, true],
     ];
     const targetControl = resolveTargetTemperature(this._hass, entities.climate);
-    const displayedTarget = this._pendingTarget?.entityId === targetControl?.entityId ? this._pendingTarget.value : targetControl?.target;
+    const displayedTarget = this._pendingTarget && this._pendingTarget.entityId === targetControl?.entityId
+      ? this._pendingTarget.value
+      : targetControl?.target;
     const displayControl = targetControl ? { ...targetControl, target: displayedTarget } : undefined;
 
     this.shadowRoot.innerHTML = `
