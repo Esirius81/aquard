@@ -10,6 +10,7 @@ The format is inspired by Keep a Changelog and follows Semantic Versioning where
 
 ### Added
 
+- Configurable Heater tile matching the existing control row, including climate HVAC-mode toggling and the shared pending/error interaction pattern.
 - Premium interactive target-temperature controls using climate capability detection, optimistic updates, bounds enforcement, and inline SVG arrow buttons.
 - Water Quality Engine V3 with profile-driven Excellent, Monitor, Action Needed, Alert, and Unknown states plus reusable premium SVG status indicators.
 - Responsive inline SVG water-temperature gauge with a glass-like droplet and clamped 0–45 °C progress arc.

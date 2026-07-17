@@ -136,7 +136,7 @@ function titleCase(value) {
   return String(value).replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
-function getControlAction(entityId, stateObj, allowSelect = false) {
+function getControlAction(entityId, stateObj, allowSelect = false, allowClimate = false) {
   if (!entityId || !stateObj || UNAVAILABLE_STATES.has(stateObj.state)) return undefined;
   const domain = entityId.split(".", 1)[0];
   if (domain === "switch") {
@@ -144,6 +144,14 @@ function getControlAction(entityId, stateObj, allowSelect = false) {
   }
   if (allowSelect && domain === "select") {
     return { domain: "select", service: "select_next", data: { entity_id: entityId, cycle: true } };
+  }
+  if (allowClimate && domain === "climate") {
+    const modes = Array.isArray(stateObj.attributes?.hvac_modes) ? stateObj.attributes.hvac_modes : [];
+    const currentMode = String(stateObj.state).toLowerCase();
+    const hvacMode = currentMode === "off"
+      ? modes.find((mode) => String(mode).toLowerCase() === "heat") ?? modes.find((mode) => String(mode).toLowerCase() !== "off")
+      : modes.find((mode) => String(mode).toLowerCase() === "off");
+    if (hvacMode) return { domain: "climate", service: "set_hvac_mode", data: { entity_id: entityId, hvac_mode: hvacMode } };
   }
   return undefined;
 }
@@ -392,7 +400,7 @@ const styles = `
   .temperature-panel{background:radial-gradient(circle at 80% 45%,rgba(13,174,220,.13),transparent 38%),linear-gradient(145deg,rgba(8,40,57,.96),rgba(5,24,37,.9))}.temperature-copy{display:flex;flex-direction:column;justify-content:center}.temperature-reading{display:flex;align-items:baseline;margin:13px 0 18px;white-space:nowrap;font-size:clamp(3.2rem,8.2cqw,6.1rem);font-weight:620;font-variant-numeric:tabular-nums;letter-spacing:-.06em;line-height:.9}.temperature-value{display:inline-flex;align-items:baseline}.temperature-decimal{font-size:.56em;font-weight:580;letter-spacing:-.035em}.temperature-unit{margin-left:.3em;color:var(--aq-muted);font-size:.27em;font-weight:500;letter-spacing:0}.metric-unit{margin-left:.22em;color:var(--aq-muted);font-size:.35em;font-weight:500;letter-spacing:0}.climate-line{flex-wrap:wrap;gap:6px 10px;padding-top:14px;border-top:1px solid rgba(89,180,205,.15);font-size:.85rem}.climate-label{color:var(--aq-blue)}.climate-value{overflow-wrap:anywhere;color:#c5dce6}
   .temperature-copy:has(.target-control) .temperature-reading{margin:8px 0}.target-control{padding-top:6px;border-top:1px solid rgba(89,180,205,.15)}.target-label{margin-bottom:3px;color:var(--aq-blue);font-size:.78rem}.target-control-row{display:grid;grid-template-columns:44px minmax(58px,1fr) 44px;align-items:center;gap:7px}.target-button{display:grid;width:44px;height:44px;padding:0;place-items:center;border:0;border-radius:13px;color:var(--aq-blue);background:transparent;cursor:pointer;transition:transform 120ms ease,opacity 160ms ease,filter 160ms ease}.target-button:hover:not(:disabled){filter:brightness(1.15)}.target-button:active:not(:disabled),.target-button.pending{transform:scale(.94);filter:brightness(1.25)}.target-button:focus-visible{outline:2px solid var(--aq-blue);outline-offset:2px}.target-button:disabled{cursor:default;opacity:.38}.target-button.pending{opacity:.72}.target-arrow-svg{display:block;width:44px;height:44px;overflow:visible}.target-button-glass{fill:rgba(7,31,45,.5);stroke:var(--aq-blue);stroke-width:1.5;filter:drop-shadow(0 0 5px rgba(24,200,243,.32))}.target-button-highlight{fill:none;stroke:var(--aq-gauge-highlight);stroke-width:1;stroke-linecap:round;opacity:.38}.target-arrow-chevron{fill:none;stroke:var(--aq-blue);stroke-width:5;stroke-linecap:round;stroke-linejoin:round;filter:drop-shadow(0 0 3px rgba(24,200,243,.55))}.target-display{display:flex;min-width:0;align-items:baseline;justify-content:center;white-space:nowrap;color:var(--aq-text);font-variant-numeric:tabular-nums}.target-number{font-size:clamp(1.55rem,3.2cqw,2.1rem);font-weight:650;letter-spacing:-.035em}.target-unit{margin-left:.3em;color:var(--aq-muted);font-size:.75rem;font-weight:500}
   .temperature-gauge{position:relative;display:grid;width:clamp(112px,16.5cqw,170px);aspect-ratio:1;align-self:center;flex:0 0 auto;place-items:center}.temperature-gauge-svg{display:block;width:100%;height:100%;overflow:visible}.temperature-gauge-track,.temperature-gauge-progress{fill:none;stroke-width:11;stroke-linecap:round}.temperature-gauge-track{stroke:var(--aq-gauge-track)}.temperature-gauge-progress{stroke:var(--aq-gauge-progress);filter:drop-shadow(0 0 6px rgba(24,200,243,.48));transition:stroke-dasharray var(--aq-motion)}.temperature-gauge-marker{fill:var(--aq-gauge-marker);filter:drop-shadow(0 0 4px var(--aq-gauge-marker));transition:cx var(--aq-motion),cy var(--aq-motion)}.temperature-gauge-droplet{color:var(--aq-gauge-progress)}.temperature-gauge-drop-edge{fill:none;stroke:var(--aq-gauge-highlight);stroke-width:1.35;stroke-opacity:.62}
-  .equipment-section{margin-top:var(--aq-gap)}.equipment-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--aq-gap)}.equipment-tile{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;width:100%;min-width:0;gap:14px;padding:clamp(14px,2cqw,20px);overflow:hidden;border:1px solid var(--aq-border);border-radius:var(--aq-md);color:inherit;background:linear-gradient(145deg,rgba(8,36,51,.9),rgba(6,25,38,.78));font:inherit;text-align:left;cursor:pointer;transition:transform 120ms ease,border-color 180ms ease,background 180ms ease,box-shadow 180ms ease}.equipment-tile:hover:not(:disabled){border-color:rgba(55,190,222,.4)}.equipment-tile:active:not(:disabled){transform:scale(.985)}.equipment-tile:focus-visible{outline:2px solid var(--aq-blue);outline-offset:2px}.equipment-tile:disabled{cursor:default}.equipment-tile.active{border-color:rgba(67,230,108,.3);background:linear-gradient(145deg,rgba(9,48,55,.94),rgba(6,30,40,.82));box-shadow:inset 0 0 22px rgba(67,230,108,.035)}.equipment-tile.pending{opacity:.78}
+  .equipment-section{margin-top:var(--aq-gap)}.equipment-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:var(--aq-gap)}.equipment-tile{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;width:100%;min-width:0;gap:14px;padding:clamp(14px,2cqw,20px);overflow:hidden;border:1px solid var(--aq-border);border-radius:var(--aq-md);color:inherit;background:linear-gradient(145deg,rgba(8,36,51,.9),rgba(6,25,38,.78));font:inherit;text-align:left;cursor:pointer;transition:transform 120ms ease,border-color 180ms ease,background 180ms ease,box-shadow 180ms ease}.equipment-tile:hover:not(:disabled){border-color:rgba(55,190,222,.4)}.equipment-tile:active:not(:disabled){transform:scale(.985)}.equipment-tile:focus-visible{outline:2px solid var(--aq-blue);outline-offset:2px}.equipment-tile:disabled{cursor:default}.equipment-tile.active{border-color:rgba(67,230,108,.3);background:linear-gradient(145deg,rgba(9,48,55,.94),rgba(6,30,40,.82));box-shadow:inset 0 0 22px rgba(67,230,108,.035)}.equipment-tile.pending{opacity:.78}
   .equipment-icon{display:grid;width:clamp(48px,5.8cqw,62px);aspect-ratio:1;place-items:center;border:2px solid var(--aq-blue);border-radius:50%;color:var(--aq-blue);box-shadow:0 0 18px rgba(25,199,242,.13),inset 0 0 14px rgba(25,199,242,.08)}.equipment-icon ha-icon{width:27px;height:27px;--mdc-icon-size:27px}.equipment-copy{min-width:0}.equipment-name{color:#dcebf1;font-size:clamp(.92rem,1.7cqw,1.08rem);font-weight:600}.equipment-value{margin-top:4px;overflow-wrap:anywhere;color:#65daf3;font-size:.86rem}.available .equipment-value{color:var(--aq-green)}.pending .status-dot{border:2px solid rgba(101,218,243,.28);border-top-color:var(--aq-blue);background:transparent;box-shadow:none;animation:aq-spin .7s linear infinite}@keyframes aq-spin{to{transform:rotate(360deg)}}
   .measurement-section{margin-top:var(--aq-gap);overflow:hidden;border:1px solid var(--aq-border);border-radius:var(--aq-lg);background:rgba(5,24,36,.72)}.metric-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;background:rgba(62,176,207,.16)}.metric-tile{min-width:0;padding:clamp(17px,2.3cqw,24px);overflow:hidden;background:linear-gradient(145deg,rgba(8,36,51,.94),rgba(6,25,38,.88));--range-intensity:0;--range-opacity:.42;--current-position:50%}.metric-heading,.metric-label,.metric-reading-row,.metric-footer{display:flex;align-items:center;min-width:0}.metric-label{gap:9px}.metric-icon{width:23px;height:23px;flex:0 0 auto;color:var(--aq-blue);--mdc-icon-size:23px}.metric-name{color:#bcd4df;font-size:.9rem;font-weight:620;letter-spacing:.02em}.metric-reading-row{justify-content:space-between;gap:10px;margin-top:14px}.metric-reading{min-width:0;overflow-wrap:anywhere;font-size:clamp(1.85rem,3.8cqw,2.7rem);font-weight:590;letter-spacing:-.035em}.metric-quality-mark{display:grid;width:31px;height:31px;flex:0 0 auto;place-items:center;border:2px solid var(--aq-green);border-radius:50%;color:var(--aq-green);box-shadow:0 0 12px rgba(67,230,108,.14)}.metric-quality-mark ha-icon{width:18px;height:18px;--mdc-icon-size:18px}.quality-monitor .metric-quality-mark{border-color:var(--aq-yellow);color:var(--aq-yellow)}.quality-action_needed .metric-quality-mark{border-color:var(--aq-orange);color:var(--aq-orange)}.quality-alert .metric-quality-mark{border-color:var(--aq-red);color:var(--aq-red)}.unavailable .metric-quality-mark,.not-configured .metric-quality-mark{border-color:var(--aq-muted);color:var(--aq-muted);opacity:.55}.metric-meter{position:relative;height:8px;margin-top:16px;overflow:visible;border-radius:999px;color:var(--aq-muted);background:rgba(37,68,82,.5);isolation:isolate}.metric-meter::before{position:absolute;inset:0;z-index:0;border-radius:inherit;background:currentColor;opacity:var(--range-opacity,.4);content:""}.range-ideal .metric-meter{color:var(--aq-green);--range-opacity:.82}.range-low .metric-meter{color:var(--aq-blue)}.range-high .metric-meter{color:var(--aq-red)}.range-neutral .metric-meter{color:var(--aq-muted);--range-opacity:.28}.metric-value-marker{position:absolute;top:50%;left:clamp(4px,var(--current-position),calc(100% - 4px));z-index:2;width:2px;height:16px;border-radius:2px;background:#f4fbff;box-shadow:0 0 5px rgba(255,255,255,.8);transform:translate(-50%,-50%);transition:left var(--aq-motion)}.range-neutral .metric-value-marker{display:none}.metric-footer{justify-content:space-between;gap:8px;margin-top:10px}.metric-quality{min-width:0;color:var(--aq-muted);font-size:.7rem;overflow-wrap:anywhere}.metric-state{min-width:0;flex:0 0 auto;gap:5px}.quality-excellent .metric-quality{color:var(--aq-green)}.quality-monitor .metric-quality{color:var(--aq-yellow)}.quality-action_needed .metric-quality{color:var(--aq-orange)}.quality-alert .metric-quality{color:var(--aq-red)}
   @media(prefers-reduced-motion:reduce){.equipment-tile,.target-button,.temperature-gauge-progress,.temperature-gauge-marker{transition-duration:.01ms}.pending .status-dot{animation-duration:1.4s}}
@@ -424,6 +432,7 @@ const UI_TEXT = Object.freeze({
   available: "Sensor available",
   power: "Power",
   filter: "Filter",
+  heater: "Heater",
   bubbles: "Bubbles",
 });
 
@@ -534,9 +543,10 @@ export class AquardCard extends HTMLElement {
       tds: this._hass?.states?.[entities.tds]?.state,
     });
     const controls = [
-      [UI_TEXT.power, power, "power", entities.power, false],
-      [UI_TEXT.filter, readSwitch(this._hass, entities.filter), "filter", entities.filter, false],
-      [UI_TEXT.bubbles, readEntity(this._hass, entities.bubbles), "bubbles", entities.bubbles, true],
+      [UI_TEXT.power, power, "power", entities.power, false, false],
+      [UI_TEXT.filter, readSwitch(this._hass, entities.filter), "filter", entities.filter, false, false],
+      [UI_TEXT.heater, readEntity(this._hass, entities.heater), "heater", entities.heater, false, true],
+      [UI_TEXT.bubbles, readEntity(this._hass, entities.bubbles), "bubbles", entities.bubbles, true, false],
     ];
     const targetControl = resolveTargetTemperature(this._hass, entities.climate);
     const displayedTarget = this._pendingTarget && this._pendingTarget.entityId === targetControl?.entityId
@@ -603,9 +613,9 @@ export class AquardCard extends HTMLElement {
     }
   }
 
-  _createEquipmentTile(label, reading, icon, entityId, allowSelect) {
+  _createEquipmentTile(label, reading, icon, entityId, allowSelect, allowClimate) {
     const stateObj = entityId ? this._hass?.states?.[entityId] : undefined;
-    const action = getControlAction(entityId, stateObj, allowSelect);
+    const action = getControlAction(entityId, stateObj, allowSelect, allowClimate);
     const active = isControlActive(stateObj);
     const pending = this._pendingControls.has(entityId);
     const row = document.createElement("button");
@@ -618,13 +628,13 @@ export class AquardCard extends HTMLElement {
     row.querySelector(".equipment-name").textContent = label;
     row.querySelector(".equipment-value").textContent = reading.availabilityClass === "available" ? titleCase(reading.value) : reading.value;
     row.setAttribute("aria-label", `${label}: ${row.querySelector(".equipment-value").textContent}`);
-    row.addEventListener("click", () => this._activateControl(entityId, allowSelect));
+    row.addEventListener("click", () => this._activateControl(entityId, allowSelect, allowClimate));
     return row;
   }
 
-  async _activateControl(entityId, allowSelect) {
+  async _activateControl(entityId, allowSelect, allowClimate = false) {
     if (this._pendingControls.has(entityId)) return;
-    const action = getControlAction(entityId, this._hass?.states?.[entityId], allowSelect);
+    const action = getControlAction(entityId, this._hass?.states?.[entityId], allowSelect, allowClimate);
     if (!action || typeof this._hass?.callService !== "function") return;
 
     this._pendingControls.add(entityId);

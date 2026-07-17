@@ -134,7 +134,7 @@ export function titleCase(value) {
   return String(value).replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
-export function getControlAction(entityId, stateObj, allowSelect = false) {
+export function getControlAction(entityId, stateObj, allowSelect = false, allowClimate = false) {
   if (!entityId || !stateObj || UNAVAILABLE_STATES.has(stateObj.state)) return undefined;
   const domain = entityId.split(".", 1)[0];
   if (domain === "switch") {
@@ -142,6 +142,14 @@ export function getControlAction(entityId, stateObj, allowSelect = false) {
   }
   if (allowSelect && domain === "select") {
     return { domain: "select", service: "select_next", data: { entity_id: entityId, cycle: true } };
+  }
+  if (allowClimate && domain === "climate") {
+    const modes = Array.isArray(stateObj.attributes?.hvac_modes) ? stateObj.attributes.hvac_modes : [];
+    const currentMode = String(stateObj.state).toLowerCase();
+    const hvacMode = currentMode === "off"
+      ? modes.find((mode) => String(mode).toLowerCase() === "heat") ?? modes.find((mode) => String(mode).toLowerCase() !== "off")
+      : modes.find((mode) => String(mode).toLowerCase() === "off");
+    if (hvacMode) return { domain: "climate", service: "set_hvac_mode", data: { entity_id: entityId, hvac_mode: hvacMode } };
   }
   return undefined;
 }

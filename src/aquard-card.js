@@ -27,6 +27,7 @@ const UI_TEXT = Object.freeze({
   available: "Sensor available",
   power: "Power",
   filter: "Filter",
+  heater: "Heater",
   bubbles: "Bubbles",
 });
 
@@ -137,9 +138,10 @@ export class AquardCard extends HTMLElement {
       tds: this._hass?.states?.[entities.tds]?.state,
     });
     const controls = [
-      [UI_TEXT.power, power, "power", entities.power, false],
-      [UI_TEXT.filter, readSwitch(this._hass, entities.filter), "filter", entities.filter, false],
-      [UI_TEXT.bubbles, readEntity(this._hass, entities.bubbles), "bubbles", entities.bubbles, true],
+      [UI_TEXT.power, power, "power", entities.power, false, false],
+      [UI_TEXT.filter, readSwitch(this._hass, entities.filter), "filter", entities.filter, false, false],
+      [UI_TEXT.heater, readEntity(this._hass, entities.heater), "heater", entities.heater, false, true],
+      [UI_TEXT.bubbles, readEntity(this._hass, entities.bubbles), "bubbles", entities.bubbles, true, false],
     ];
     const targetControl = resolveTargetTemperature(this._hass, entities.climate);
     const displayedTarget = this._pendingTarget && this._pendingTarget.entityId === targetControl?.entityId
@@ -206,9 +208,9 @@ export class AquardCard extends HTMLElement {
     }
   }
 
-  _createEquipmentTile(label, reading, icon, entityId, allowSelect) {
+  _createEquipmentTile(label, reading, icon, entityId, allowSelect, allowClimate) {
     const stateObj = entityId ? this._hass?.states?.[entityId] : undefined;
-    const action = getControlAction(entityId, stateObj, allowSelect);
+    const action = getControlAction(entityId, stateObj, allowSelect, allowClimate);
     const active = isControlActive(stateObj);
     const pending = this._pendingControls.has(entityId);
     const row = document.createElement("button");
@@ -221,13 +223,13 @@ export class AquardCard extends HTMLElement {
     row.querySelector(".equipment-name").textContent = label;
     row.querySelector(".equipment-value").textContent = reading.availabilityClass === "available" ? titleCase(reading.value) : reading.value;
     row.setAttribute("aria-label", `${label}: ${row.querySelector(".equipment-value").textContent}`);
-    row.addEventListener("click", () => this._activateControl(entityId, allowSelect));
+    row.addEventListener("click", () => this._activateControl(entityId, allowSelect, allowClimate));
     return row;
   }
 
-  async _activateControl(entityId, allowSelect) {
+  async _activateControl(entityId, allowSelect, allowClimate = false) {
     if (this._pendingControls.has(entityId)) return;
-    const action = getControlAction(entityId, this._hass?.states?.[entityId], allowSelect);
+    const action = getControlAction(entityId, this._hass?.states?.[entityId], allowSelect, allowClimate);
     if (!action || typeof this._hass?.callService !== "function") return;
 
     this._pendingControls.add(entityId);

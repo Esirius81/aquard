@@ -60,6 +60,7 @@ Optional controls:
 
 - Power
 - Filter
+- Heater
 - Bubbles
 
 Aquard automatically detects the supported entity type where possible.
@@ -132,6 +133,7 @@ entities:
 
   power: switch.easy_spa_power
   filter: switch.easy_spa_filter
+  heater: climate.easy_spa_thermostat
   bubbles: select.easy_spa_bubbles
 ```
 
@@ -149,7 +151,10 @@ entities:
 | climate | Optional | Used for target temperature |
 | power | Optional | Power control |
 | filter | Optional | Filter control |
+| heater | Optional | Heater control using a climate entity or switch |
 | bubbles | Optional | Bubble control |
+
+The same climate entity may be configured for both `climate` and `heater`. The `climate` mapping provides target-temperature adjustment, while `heater` provides the on/off tile through supported HVAC modes.
 
 ---
 

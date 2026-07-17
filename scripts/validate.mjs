@@ -37,7 +37,8 @@ const hass = {
     "switch.power": { state: "on", attributes: {} },
     "select.bubbles": { state: "High", attributes: { options: ["Off", "Low", "High"] } },
     "select.bubbles_off": { state: "uit", attributes: { options: ["uit", "hoog"] } },
-    "climate.spa": { state: "heat", attributes: { temperature: 38, temperature_unit: "°C", supported_features: 1, target_temp_step: 0.5, min_temp: 30, max_temp: 40 } },
+    "climate.spa": { state: "heat", attributes: { temperature: 38, temperature_unit: "°C", supported_features: 1, target_temp_step: 0.5, min_temp: 30, max_temp: 40, hvac_modes: ["off", "heat"] } },
+    "climate.spa_off": { state: "off", attributes: { temperature: 38, supported_features: 1, hvac_modes: ["off", "heat"] } },
     "climate.no_target": { state: "heat", attributes: { supported_features: 1 } },
     "climate.unsupported": { state: "heat", attributes: { temperature: 36, supported_features: 0 } },
     "climate.unavailable": { state: "unavailable", attributes: { temperature: 36, supported_features: 1 } },
@@ -89,6 +90,15 @@ assert.deepEqual(getControlAction("select.bubbles", hass.states["select.bubbles"
 });
 assert.equal(getControlAction("select.bubbles", hass.states["select.bubbles"], false), undefined);
 assert.equal(getControlAction("sensor.ph", hass.states["sensor.ph"]), undefined);
+assert.deepEqual(getControlAction("climate.spa", hass.states["climate.spa"], false, true), {
+  domain: "climate", service: "set_hvac_mode", data: { entity_id: "climate.spa", hvac_mode: "off" },
+});
+assert.deepEqual(getControlAction("climate.spa_off", hass.states["climate.spa_off"], false, true), {
+  domain: "climate", service: "set_hvac_mode", data: { entity_id: "climate.spa_off", hvac_mode: "heat" },
+});
+assert.equal(getControlAction("climate.spa", hass.states["climate.spa"], false, false), undefined);
+assert.equal(isControlActive(hass.states["climate.spa"]), true);
+assert.equal(isControlActive(hass.states["climate.spa_off"]), false);
 assert.equal(isControlActive(hass.states["select.bubbles"]), true);
 assert.equal(isControlActive(hass.states["select.bubbles_off"]), false);
 
