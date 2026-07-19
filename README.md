@@ -2,7 +2,7 @@
 
 ![Aquard dashboard](screenshot.png)
 
-[![Open your Home Assistant instance and add Aquard through HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=EricKoeman&repository=Aquard&category=plugin)
+[![Open your Home Assistant instance and add Aquard through HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=Esirius81&repository=aquard&category=plugin)
 
 Aquard is a modern Home Assistant card for monitoring water quality.
 
