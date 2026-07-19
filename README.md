@@ -1,18 +1,36 @@
 # Aquard
 
-A modern Home Assistant card for monitoring water quality.
+![Aquard dashboard](screenshot.png)
 
-Aquard combines multiple water measurements into a single, easy-to-understand dashboard that helps you monitor your water and know when maintenance may be required.
+[![Open your Home Assistant instance and add Aquard through HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=EricKoeman&repository=Aquard&category=plugin)
+
+Aquard is a modern Home Assistant card for monitoring water quality.
+
+It brings multiple water measurements together in one easy-to-understand dashboard, so you can quickly see the condition of your water instead of interpreting several individual sensor values.
 
 The project is currently focused on **spa monitoring**, but is designed around a **profile-driven architecture** so it can later support pools, aquariums, ponds and other water systems.
 
-> **Current Status:** Active Development
+> **Current status:** Active development
 
 ---
 
-# Features
+## Why Aquard
 
-## 🌊 Water Quality
+Aquard is designed to answer one simple question:
+
+> **Is my water ready?**
+
+Rather than only displaying raw sensor values, Aquard evaluates the available measurements and presents a clear overall status.
+
+## Why I Built Aquard
+
+I originally built Aquard because I wanted better insight into my own Lay-Z-Spa. Looking at separate sensor values wasn't enough; I wanted one clear dashboard that showed whether my water was in good condition.
+
+Aquard achieved exactly that goal for me. I'm sharing it because I hope other Home Assistant users can benefit from it as well.
+
+## Features
+
+### 🌊 Water Quality
 
 - Intelligent Water Quality evaluation
 - Combined Water Quality Score
@@ -27,7 +45,7 @@ The project is currently focused on **spa monitoring**, but is designed around a
 
 ---
 
-## 🌡 Temperature
+### 🌡 Temperature
 
 - Current water temperature
 - Target temperature
@@ -36,7 +54,7 @@ The project is currently focused on **spa monitoring**, but is designed around a
 
 ---
 
-## 📊 Water Measurements
+### 📊 Water Measurements
 
 Currently supported:
 
@@ -54,7 +72,7 @@ Each measurement includes:
 
 ---
 
-## ⚙ Device Controls
+### ⚙ Device Controls
 
 Optional controls:
 
@@ -67,7 +85,7 @@ Aquard automatically detects the supported entity type where possible.
 
 ---
 
-## 🎨 Premium Interface
+### 🎨 Premium Interface
 
 - Modern dark UI
 - SVG graphics
@@ -78,9 +96,9 @@ Aquard automatically detects the supported entity type where possible.
 
 ---
 
-# Installation
+## Installation
 
-## Manual Installation
+### Manual Installation
 
 Copy:
 
@@ -94,24 +112,24 @@ to:
 /config/www/
 ```
 
-Then add the resource inside Home Assistant.
+Then add the resource inside Home Assistant:
 
-Settings → Dashboards → Resources
+**Settings → Dashboards → Resources**
 
-or
+or:
 
 ```yaml
 url: /local/aquard-card.js
 type: module
 ```
 
-Refresh the browser (Ctrl+F5) after installation.
+Refresh the browser (`Ctrl+F5`) after installation.
 
 ---
 
-# Configuration
+## Configuration
 
-Basic example
+Basic example:
 
 ```yaml
 type: custom:aquard-card
@@ -139,50 +157,48 @@ entities:
 
 ---
 
-# Supported Entities
+## Supported Entities
 
 | Entity | Required | Description |
-|----------|----------|-------------|
-| water_temperature | ✔ | Current water temperature |
-| ph | ✔ | pH measurement |
-| orp | ✔ | ORP measurement |
-| ec | Optional | Electrical conductivity |
-| tds | Optional | Total dissolved solids |
-| climate | Optional | Used for target temperature |
-| power | Optional | Power control |
-| filter | Optional | Filter control |
-| heater | Optional | Heater control using a climate entity or switch |
-| bubbles | Optional | Bubble control |
+|---|---|---|
+| `water_temperature` | ✔ | Current water temperature |
+| `ph` | ✔ | pH measurement |
+| `orp` | ✔ | ORP measurement |
+| `ec` | Optional | Electrical conductivity |
+| `tds` | Optional | Total dissolved solids |
+| `climate` | Optional | Used for target temperature |
+| `power` | Optional | Power control |
+| `filter` | Optional | Filter control |
+| `heater` | Optional | Heater control using a climate entity or switch |
+| `bubbles` | Optional | Bubble control |
 
 The same climate entity may be configured for both `climate` and `heater`. The `climate` mapping provides target-temperature adjustment, while `heater` provides the on/off tile through supported HVAC modes.
 
 ---
 
-# Bubble Control
+## Bubble Control
 
 Aquard automatically supports two Home Assistant entity types.
 
-## Switch
+### Switch
 
 ```yaml
 bubbles: switch.easy_spa_bubbles
 ```
 
-Uses
+Uses:
 
 ```text
 switch.toggle
 ```
 
----
-
-## Select
+### Select
 
 ```yaml
 bubbles: select.easy_spa_bubbles
 ```
 
-Uses
+Uses:
 
 ```text
 select.select_next
@@ -192,12 +208,12 @@ No additional configuration is required.
 
 ---
 
-# Water Quality Status
+## Water Quality Status
 
 Aquard evaluates the available measurements and presents a single overall status.
 
 | Status | Meaning |
-|----------|----------|
+|---|---|
 | 🟢 Excellent | Everything is within the preferred operating range. |
 | 🟡 Monitor | Water is still usable, but should be monitored. |
 | 🟠 Action Needed | Maintenance is recommended. |
@@ -210,7 +226,22 @@ EC is evaluated individually but is **not** included in the overall Water Qualit
 
 ---
 
-# Philosophy
+## Reference Setup
+
+Aquard is currently developed and tested with:
+
+- A Bestway Lay-Z-Spa
+- An [AliExpress 7-in-1 WiFi Water Quality Sensor](https://nl.aliexpress.com/item/1005008896990245.html)
+
+These are **not requirements**. Aquard only depends on Home Assistant entities and can work with many different hardware combinations.
+
+I mounted my sensor inline using a custom 3D-printed adapter based on the [Lay-Z-Spa pump extrusion water sensor](https://makerworld.com/en/models/2889918-lay-z-spa-pump-extrusion-water-sensor). Full credit for the adapter design goes to its original designer.
+
+This inline installation is entirely optional and is not required to use Aquard.
+
+---
+
+## Philosophy
 
 Aquard is designed around one simple question.
 
@@ -224,34 +255,29 @@ It does **not** replace proper water testing or manufacturer recommendations.
 
 ---
 
-# Roadmap
+## Roadmap
 
 Planned features include:
 
-- Compact dashboard mode
-- Multiple responsive layouts
-- Pool profile
-- Aquarium profile
-- Pond profile
-- Hydroponics profile
-- Theme packs
+- Mobile / single-column layout
+- Additional water profiles
 - Historical graphs
 - Maintenance reminders
-- Additional SVG icon sets
-- HACS support
+- Localization
+- Theme packs
 
 ---
 
-# Development
+## Development
 
-Aquard is currently under active development.
+Aquard is developed in my spare time and is currently under active development. The interface, evaluation engine and profile system are still evolving, so breaking changes may occur until the first stable release.
 
-The interface, evaluation engine and profile system are evolving rapidly.
+I use AI as a development assistant for architecture, documentation and implementation. This is also why the repository contains extensive documentation: it helps keep the project consistent and makes future development and contributions easier.
 
-Breaking changes may occur until the first stable release.
+Contributions, ideas and feedback are welcome.
 
 ---
 
-# License
+## License
 
 AGPL-V3
