@@ -115,8 +115,8 @@ export function resolveTargetTemperature(hass, entityId) {
 
 export function getTargetTemperatureAdjustment(control, direction) {
   if (!control || (direction !== -1 && direction !== 1)) return undefined;
-  const unclamped = control.target + (control.step * direction);
-  const temperature = roundToStep(Math.min(control.max, Math.max(control.min, unclamped)), control.step);
+  const unclamped = control.target + direction;
+  const temperature = Math.min(control.max, Math.max(control.min, unclamped));
   if (Math.abs(temperature - control.target) < Number.EPSILON) return undefined;
   return { temperature, domain: "climate", service: "set_temperature", data: { entity_id: control.entityId, temperature } };
 }
