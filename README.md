@@ -129,6 +129,19 @@ Refresh the browser (`Ctrl+F5`) after installation.
 
 ## Configuration
 
+### Adding Aquard through the UI
+
+1. Edit your Home Assistant dashboard and choose **Add card**.
+2. Search for and select **Aquard**.
+3. Keep the currently supported **Spa** profile selected.
+4. Select whichever Spa entities your installation provides.
+5. Choose **Dashboard**, **Compact**, or **Custom** under Appearance.
+6. With Custom selected, fine-tune each component as Full, Compact, or Hidden.
+
+New cards deliberately start without invented entity IDs. Until at least one entity is selected, the preview shows a modest **Aquard setup** message instead of fabricated readings or a configuration error. Every entity is optional, and unavailable configured entities remain stored. YAML configuration remains fully supported.
+
+The **Dashboard** preset uses the complete presentation with every component in Full mode. **Compact** condenses water status, temperature, and measurements while hiding actions, controls, and details. **Custom** preserves and exposes every individual component mode.
+
 ### Visual Configuration Editor
 
 Aquard can be configured directly in Home Assistant's visual card editor. The editor includes the profile, all supported device entities, and the card name, so YAML is not required.
@@ -142,6 +155,7 @@ Basic example:
 ```yaml
 type: custom:aquard-card
 name: Aquard
+profile: spa
 
 grid_options:
   columns: full
@@ -161,6 +175,13 @@ entities:
   filter: switch.easy_spa_filter
   heater: climate.easy_spa_thermostat
   bubbles: select.easy_spa_bubbles
+components:
+  water_status: full
+  temperature: full
+  actions: full
+  measurements: full
+  controls: full
+  details: full
 ```
 
 ---

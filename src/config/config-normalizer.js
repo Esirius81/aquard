@@ -7,6 +7,9 @@ export function normalizeAquardConfig(config) {
     throw new Error("Aquard requires a configuration object");
   }
 
+  const profile = config.profile ?? "spa";
+  if (profile !== "spa") throw new Error(`Aquard does not support profile "${String(profile)}"`);
+
   let entities;
   if (config.entities !== undefined) {
     if (!config.entities || typeof config.entities !== "object" || Array.isArray(config.entities)) {
@@ -41,6 +44,7 @@ export function normalizeAquardConfig(config) {
 
   return {
     ...config,
+    profile,
     name: config.name || "Aquard",
     entities,
     components,

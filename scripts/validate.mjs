@@ -12,7 +12,8 @@ import { evaluateSpaWaterQuality, SPA_WATER_QUALITY_PROFILE } from "../src/water
 import { temperatureToArc } from "../src/components/temperature-gauge.js";
 import { renderStatusIndicator, STATUS_INDICATOR_GEOMETRY } from "../src/components/status-indicator.js";
 import { styles } from "../src/styles.js";
-import { dispatchConfigChanged, updateConfigProperty } from "../src/editor/editor-helpers.js";
+import { dispatchConfigChanged, hasMeaningfulEntities, updateConfigProperty } from "../src/editor/editor-helpers.js";
+import { applyLayoutPreset, deriveLayoutPreset, LAYOUT_PRESETS } from "../src/editor/editor-presets.js";
 
 globalThis.HTMLElement = class {};
 const registeredElements = new Map();
@@ -26,7 +27,7 @@ globalThis.document = { createElement: (name) => ({ localName: name }) };
 const { AquardCard } = await import("../src/aquard-card.js");
 const { AquardCardEditor } = await import("../src/editor/aquard-card-editor.js");
 assert.equal(AquardCard.getConfigElement().localName, "aquard-card-editor");
-assert.deepEqual(AquardCard.getStubConfig(), { profile: "spa", entities: {} });
+assert.deepEqual(AquardCard.getStubConfig(), { profile: "spa", entities: {}, components: LAYOUT_PRESETS.dashboard });
 assert.equal(typeof AquardCard.prototype.getGridOptions, "function");
 assert.deepEqual(AquardCard.prototype.getGridOptions(), {
   columns: 12,
@@ -34,6 +35,17 @@ assert.deepEqual(AquardCard.prototype.getGridOptions(), {
 });
 assert.equal(customElements.get("aquard-card"), AquardCard);
 assert.equal(customElements.get("purespa-card").prototype instanceof AquardCard, true);
+assert.equal(window.customCards.filter((card) => card.type === "aquard-card").length, 1);
+assert.equal(window.customCards[0].preview, true);
+assert.equal(hasMeaningfulEntities(AquardCard.getStubConfig()), false);
+assert.equal(hasMeaningfulEntities({ entities: { ph: "sensor.ph" } }), true);
+const setupCard = Object.create(AquardCard.prototype);
+setupCard._config = normalizeAquardConfig(AquardCard.getStubConfig());
+setupCard._hass = { callService: () => { throw new Error("setup must not call services"); } };
+setupCard.shadowRoot = { innerHTML: "" };
+setupCard._render();
+assert.match(setupCard.shadowRoot.innerHTML, /Aquard setup/);
+assert.doesNotMatch(setupCard.shadowRoot.innerHTML.split("</style>")[1], /EXCELLENT|Not configured|0%/);
 
 const legacy = normalizeAquardConfig({ entity: "sensor.water", name: "Legacy" });
 assert.equal(legacy.entities.water_temperature, "sensor.water");
@@ -73,6 +85,17 @@ missingEntityEditor.shadowRoot = { querySelectorAll: () => [] };
 assert.doesNotThrow(() => { missingEntityEditor.hass = { states: {} }; });
 assert.throws(() => normalizeAquardConfig({ entities: "sensor.invalid" }), /YAML mapping/);
 assert.throws(() => normalizeAquardConfig({}), /entities mapping/);
+assert.throws(() => normalizeAquardConfig({ profile: "pool", entities: {} }), /does not support profile/);
+
+const presetSource = { entities: {}, components: { future_component: "future" }, future_option: true };
+const dashboardPreset = applyLayoutPreset(presetSource, "dashboard");
+assert.equal(deriveLayoutPreset(dashboardPreset), "dashboard");
+assert.equal(dashboardPreset.components.future_component, "future");
+const compactPreset = applyLayoutPreset(dashboardPreset, "compact");
+assert.equal(deriveLayoutPreset(compactPreset), "compact");
+assert.deepEqual(Object.fromEntries(COMPONENT_IDS.map((id) => [id, compactPreset.components[id]])), LAYOUT_PRESETS.compact);
+assert.equal(applyLayoutPreset(compactPreset, "custom"), compactPreset);
+assert.equal(deriveLayoutPreset(updateConfigProperty(compactPreset, ["components", "controls"], "full")), "custom");
 
 const originalConfig = { entities: { ph: "sensor.ph" }, components: { temperature: "compact", future_component: "future" }, future_option: { enabled: true } };
 const normalizedComponents = normalizeAquardConfig(originalConfig);

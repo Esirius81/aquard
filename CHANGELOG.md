@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Sprint 3 — Premium visual configuration experience
+
+- Added duplicate-safe Home Assistant card-picker registration with preview support and a safe Spa stub configuration.
+- Added a polished five-section visual editor for profiles, optional Spa entities, appearance, components, and advanced settings.
+- Added deterministic Dashboard, Compact, and Custom layouts with Full, Compact, and Hidden controls for every component.
+- Added an intentional setup state for valid cards that do not have entities yet.
+- Preserved unknown, unavailable, legacy, and YAML configuration values through immutable targeted editor updates.
+
 ### Sprint 2 — Modular card architecture
 
 - Added six canonical runtime components: water status, temperature, actions, measurements, controls, and details.

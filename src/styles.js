@@ -9,6 +9,7 @@ export const styles = `
   }
   *,*::before,*::after{box-sizing:border-box}
   ha-card{display:block;width:100%;min-width:0;max-width:none;overflow:hidden;padding:var(--aq-pad);border:1px solid var(--aq-border);border-radius:var(--aq-xl);color:var(--aq-text);background:radial-gradient(circle at 12% 8%,rgba(13,166,199,.12),transparent 32%),radial-gradient(circle at 86% 22%,rgba(20,116,173,.14),transparent 34%),linear-gradient(145deg,#071b28,var(--aq-bg) 58%,#030e17);box-shadow:0 24px 64px rgba(0,0,0,.34),inset 0 1px rgba(255,255,255,.03)}
+  .setup-card{min-height:140px}.setup-state{display:flex;min-height:108px;align-items:center;justify-content:center;gap:16px;padding:18px;text-align:left}.setup-state ha-icon{width:38px;height:38px;flex:0 0 auto;color:var(--aq-blue);--mdc-icon-size:38px}.setup-state h2{margin:0 0 6px;font-size:1.15rem}.setup-state p{margin:0;color:var(--aq-muted);line-height:1.45}
   main,.aquard-header,.hero-grid,.hero-panel,.measurement-section,.metric-grid,.equipment-section,.equipment-grid{width:100%;min-width:0}
   .aquard-header{display:flex;align-items:center;justify-content:space-between;gap:18px;margin-bottom:clamp(14px,1.8cqw,20px);padding:0 4px}
   .brand-lockup,.header-availability,.status-support,.climate-line,.metric-state{display:flex;align-items:center}

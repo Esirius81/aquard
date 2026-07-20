@@ -19,8 +19,11 @@ export function dispatchConfigChanged(element, config) {
   }));
 }
 
+export function hasMeaningfulEntities(config) {
+  return Boolean(config?.entities && Object.values(config.entities).some((value) => typeof value === "string" && value.trim()));
+}
+
 function setOrDelete(target, property, value) {
   if (value === "" || value === undefined || value === null) delete target[property];
   else target[property] = value;
 }
-

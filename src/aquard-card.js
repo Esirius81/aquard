@@ -11,6 +11,7 @@ import { renderControls } from "./components/controls.js";
 import { renderDetails } from "./components/details.js";
 import { styles } from "./styles.js";
 import "./editor/aquard-card-editor.js";
+import { hasMeaningfulEntities } from "./editor/editor-helpers.js";
 
 const METRICS = [
   ["ph", "pH", "mdi:water-outline"],
@@ -114,6 +115,14 @@ export class AquardCard extends HTMLElement {
     return {
       profile: "spa",
       entities: {},
+      components: {
+        water_status: "full",
+        temperature: "full",
+        actions: "full",
+        measurements: "full",
+        controls: "full",
+        details: "full",
+      },
     };
   }
 
@@ -155,6 +164,18 @@ export class AquardCard extends HTMLElement {
 
   _render() {
     if (!this._config || !this.shadowRoot) return;
+
+    if (!hasMeaningfulEntities(this._config)) {
+      this.shadowRoot.innerHTML = `
+        <style>${styles}</style>
+        <ha-card class="setup-card">
+          <div class="setup-state" role="status">
+            <ha-icon icon="mdi:water-cog-outline" aria-hidden="true"></ha-icon>
+            <div><h2>Aquard setup</h2><p>Select your Spa entities in the card configuration to begin.</p></div>
+          </div>
+        </ha-card>`;
+      return;
+    }
 
     const entities = this._config.entities;
     const temperature = readEntity(this._hass, entities.water_temperature, { numeric: true });
@@ -405,6 +426,7 @@ if (!window.customCards.some((card) => card.type === "aquard-card")) {
   window.customCards.push({
     type: "aquard-card",
     name: "Aquard",
-    description: "A modern water monitoring dashboard card for Home Assistant.",
+    description: "Premium water monitoring and control for spas and future water profiles.",
+    preview: true,
   });
 }

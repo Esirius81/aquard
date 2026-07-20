@@ -179,6 +179,9 @@ function normalizeAquardConfig(config) {
     throw new Error("Aquard requires a configuration object");
   }
 
+  const profile = config.profile ?? "spa";
+  if (profile !== "spa") throw new Error(`Aquard does not support profile "${String(profile)}"`);
+
   let entities;
   if (config.entities !== undefined) {
     if (!config.entities || typeof config.entities !== "object" || Array.isArray(config.entities)) {
@@ -213,6 +216,7 @@ function normalizeAquardConfig(config) {
 
   return {
     ...config,
+    profile,
     name: config.name || "Aquard",
     entities,
     components,
@@ -489,6 +493,7 @@ const styles = `
   }
   *,*::before,*::after{box-sizing:border-box}
   ha-card{display:block;width:100%;min-width:0;max-width:none;overflow:hidden;padding:var(--aq-pad);border:1px solid var(--aq-border);border-radius:var(--aq-xl);color:var(--aq-text);background:radial-gradient(circle at 12% 8%,rgba(13,166,199,.12),transparent 32%),radial-gradient(circle at 86% 22%,rgba(20,116,173,.14),transparent 34%),linear-gradient(145deg,#071b28,var(--aq-bg) 58%,#030e17);box-shadow:0 24px 64px rgba(0,0,0,.34),inset 0 1px rgba(255,255,255,.03)}
+  .setup-card{min-height:140px}.setup-state{display:flex;min-height:108px;align-items:center;justify-content:center;gap:16px;padding:18px;text-align:left}.setup-state ha-icon{width:38px;height:38px;flex:0 0 auto;color:var(--aq-blue);--mdc-icon-size:38px}.setup-state h2{margin:0 0 6px;font-size:1.15rem}.setup-state p{margin:0;color:var(--aq-muted);line-height:1.45}
   main,.aquard-header,.hero-grid,.hero-panel,.measurement-section,.metric-grid,.equipment-section,.equipment-grid{width:100%;min-width:0}
   .aquard-header{display:flex;align-items:center;justify-content:space-between;gap:18px;margin-bottom:clamp(14px,1.8cqw,20px);padding:0 4px}
   .brand-lockup,.header-availability,.status-support,.climate-line,.metric-state{display:flex;align-items:center}
@@ -520,18 +525,32 @@ const AQUARD_PROFILES = Object.freeze([
 ]);
 
 const DEVICE_FIELDS = Object.freeze([
-  { key: "climate", label: "Climate", domains: ["climate"] },
-  { key: "water_temperature", label: "Temperature sensor", domains: ["sensor"] },
-  { key: "ph", label: "pH sensor", domains: ["sensor"] },
-  { key: "orp", label: "ORP sensor", domains: ["sensor"] },
-  { key: "tds", label: "TDS sensor", domains: ["sensor"] },
-  { key: "ec", label: "EC sensor", domains: ["sensor"] },
-  { key: "power", label: "Power", domains: ["switch"] },
-  { key: "heater", label: "Heater", domains: ["climate", "switch"] },
-  { key: "filter", label: "Filter", domains: ["switch"] },
-  { key: "bubbles", label: "Bubbles", domains: ["switch", "select"] },
+  { key: "ph", label: "pH sensor", group: "Water monitoring", domains: ["sensor"] },
+  { key: "orp", label: "ORP sensor", group: "Water monitoring", domains: ["sensor"] },
+  { key: "tds", label: "TDS sensor", group: "Water monitoring", domains: ["sensor"] },
+  { key: "ec", label: "EC sensor", group: "Water monitoring", domains: ["sensor"] },
+  { key: "climate", label: "Spa climate", group: "Temperature control", domains: ["climate"], description: "Provides the target temperature control." },
+  { key: "water_temperature", label: "Water temperature sensor", group: "Temperature control", domains: ["sensor"] },
+  { key: "power", label: "Power", group: "Spa equipment", domains: ["switch"] },
+  { key: "heater", label: "Heater", group: "Spa equipment", domains: ["climate", "switch"] },
+  { key: "filter", label: "Filter", group: "Spa equipment", domains: ["switch"] },
+  { key: "bubbles", label: "Bubbles", group: "Spa equipment", domains: ["switch", "select"] },
 ]);
 
+const COMPONENT_OPTIONS = Object.freeze([
+  { key: "water_status", label: "Water status", description: "Overall water condition and score." },
+  { key: "temperature", label: "Temperature", description: "Current and target temperature." },
+  { key: "actions", label: "Actions", description: "Water-care guidance and warnings." },
+  { key: "measurements", label: "Measurements", description: "pH, ORP, EC, and TDS readings." },
+  { key: "controls", label: "Controls", description: "Spa equipment controls." },
+  { key: "details", label: "Details", description: "Card title and availability." },
+]);
+
+const MODE_OPTIONS = Object.freeze([
+  { value: "full", label: "Full" },
+  { value: "compact", label: "Compact" },
+  { value: "hidden", label: "Hidden" },
+]);
 
 function updateConfigProperty(config, path, value) {
   const nextConfig = { ...(config ?? {}) };
@@ -554,12 +573,47 @@ function dispatchConfigChanged(element, config) {
   }));
 }
 
+function hasMeaningfulEntities(config) {
+  return Boolean(config?.entities && Object.values(config.entities).some((value) => typeof value === "string" && value.trim()));
+}
+
 function setOrDelete(target, property, value) {
   if (value === "" || value === undefined || value === null) delete target[property];
   else target[property] = value;
 }
 
 
+const LAYOUT_PRESETS = Object.freeze({
+  dashboard: Object.freeze({ ...DEFAULT_COMPONENT_MODES }),
+  compact: Object.freeze({
+    water_status: "compact",
+    temperature: "compact",
+    actions: "hidden",
+    measurements: "compact",
+    controls: "hidden",
+    details: "hidden",
+  }),
+});
+
+function getEffectiveComponents(config) {
+  return Object.fromEntries(COMPONENT_IDS.map((id) => [id, config?.components?.[id] ?? DEFAULT_COMPONENT_MODES[id]]));
+}
+
+function deriveLayoutPreset(config) {
+  const modes = getEffectiveComponents(config);
+  for (const [preset, mapping] of Object.entries(LAYOUT_PRESETS)) {
+    if (COMPONENT_IDS.every((id) => modes[id] === mapping[id])) return preset;
+  }
+  return "custom";
+}
+
+function applyLayoutPreset(config, preset) {
+  if (preset === "custom" || !LAYOUT_PRESETS[preset]) return config;
+  return { ...config, components: { ...(config?.components ?? {}), ...LAYOUT_PRESETS[preset] } };
+}
+
+
+const selectMarkup = (options) => options.map(({ value, label }) => `<mwc-list-item value="${value}">${label}</mwc-list-item>`).join("");
 
 class AquardCardEditor extends HTMLElement {
   constructor() {
@@ -568,7 +622,7 @@ class AquardCardEditor extends HTMLElement {
   }
 
   setConfig(config) {
-    this._config = config && typeof config === "object" ? config : {};
+    this._config = config && typeof config === "object" && !Array.isArray(config) ? config : {};
     this._render();
   }
 
@@ -579,27 +633,24 @@ class AquardCardEditor extends HTMLElement {
 
   _render() {
     if (!this.shadowRoot || !this._config) return;
+    const profile = this._config.profile ?? "spa";
+    const preset = deriveLayoutPreset(this._config);
+    const groups = [...new Set(DEVICE_FIELDS.map((field) => field.group))];
     this.shadowRoot.innerHTML = `
       <style>
-        :host{display:block}.section{border-top:1px solid var(--divider-color);padding:20px 0 4px}.section:first-of-type{border-top:0;padding-top:4px}
-        h3{font-size:16px;font-weight:500;margin:0 0 14px}ha-select,ha-entity-picker,ha-textfield{display:block;margin-bottom:16px;width:100%}
+        :host{display:block;color:var(--primary-text-color)}*{box-sizing:border-box}.intro{margin:0 0 16px;color:var(--secondary-text-color);line-height:1.45}.notice{display:flex;gap:10px;margin:0 0 16px;padding:12px 14px;border-radius:10px;background:var(--secondary-background-color);line-height:1.4}.notice ha-icon{flex:0 0 auto;color:var(--primary-color)}details{border-top:1px solid var(--divider-color)}details:first-of-type{border-top:0}summary{padding:18px 2px;font-size:16px;font-weight:500;cursor:pointer;list-style-position:inside}.section-body{padding:0 2px 18px}.section-copy,.field-copy{margin:-4px 0 16px;color:var(--secondary-text-color);font-size:13px;line-height:1.4}.group{margin-top:20px}.group:first-child{margin-top:0}.group-title{margin:0 0 12px;font-size:14px;font-weight:600}ha-select,ha-entity-picker,ha-textfield{display:block;width:100%;margin-bottom:16px}.component{display:grid;grid-template-columns:minmax(0,1fr) minmax(130px,180px);align-items:center;gap:16px;margin-bottom:12px}.component ha-select{margin:0}.component-name{font-weight:500}.component-description{margin-top:3px;color:var(--secondary-text-color);font-size:12px}.error{color:var(--error-color)}@media(max-width:430px){.component{grid-template-columns:1fr;gap:8px}.component ha-select{margin-bottom:8px}}
       </style>
-      <div class="section profile"><h3>Profile</h3><ha-select label="Profile"></ha-select></div>
-      <div class="section devices"><h3>Devices</h3><div class="device-fields"></div></div>
-      <div class="section advanced"><h3>Advanced</h3><ha-textfield label="Name"></ha-textfield></div>
-    `;
+      ${!hasMeaningfulEntities(this._config) ? `<div class="notice" role="status"><ha-icon icon="mdi:information-outline"></ha-icon><span>Select one or more Spa entities below. You can save now and finish setup later.</span></div>` : ""}
+      <details open><summary>Profile</summary><div class="section-body"><p class="section-copy">Choose the water profile this card represents.</p><ha-select class="profile-select" label="Profile">${selectMarkup(AQUARD_PROFILES)}</ha-select>${AQUARD_PROFILES.some((item) => item.value === profile) ? "" : `<p class="field-copy error" role="alert">The configured profile is not supported. Select Spa to continue.</p>`}</div></details>
+      <details open><summary>Devices</summary><div class="section-body"><p class="section-copy">All entities are optional. Aquard keeps missing or unavailable entity IDs so they can reconnect later.</p>${groups.map((group) => `<section class="group"><h4 class="group-title">${group}</h4><div data-device-group="${group}"></div></section>`).join("")}</div></details>
+      <details open><summary>Appearance</summary><div class="section-body"><p class="section-copy">Layout presets update the display mode of all components.</p><ha-select class="preset-select" label="Layout preset"><mwc-list-item value="dashboard">Dashboard</mwc-list-item><mwc-list-item value="compact">Compact</mwc-list-item><mwc-list-item value="custom">Custom</mwc-list-item></ha-select></div></details>
+      <details ${preset === "custom" ? "open" : ""}><summary>Components</summary><div class="section-body"><p class="section-copy">Choose how much space each part uses. Changing a mode makes the layout Custom.</p><div class="components"></div></div></details>
+      <details><summary>Advanced</summary><div class="section-body"><p class="section-copy">Optional card settings.</p><ha-textfield class="name-field" label="Card name"></ha-textfield></div></details>`;
 
-    const profile = this.shadowRoot.querySelector("ha-select");
-    profile.value = this._config.profile ?? "spa";
-    for (const option of AQUARD_PROFILES) {
-      const item = document.createElement("mwc-list-item");
-      item.value = option.value;
-      item.textContent = option.label;
-      profile.append(item);
-    }
-    profile.addEventListener("selected", (event) => this._change(["profile"], event.target.value));
+    const profileSelect = this.shadowRoot.querySelector(".profile-select");
+    profileSelect.value = profile;
+    profileSelect.addEventListener("selected", (event) => this._change(["profile"], event.target.value));
 
-    const fields = this.shadowRoot.querySelector(".device-fields");
     for (const field of DEVICE_FIELDS) {
       const picker = document.createElement("ha-entity-picker");
       picker.label = field.label;
@@ -607,11 +658,27 @@ class AquardCardEditor extends HTMLElement {
       picker.hass = this._hass;
       picker.includeDomains = field.domains;
       picker.allowCustomEntity = true;
+      picker.helper = field.description ?? "Optional";
       picker.addEventListener("value-changed", (event) => this._change(["entities", field.key], event.detail?.value));
-      fields.append(picker);
+      this.shadowRoot.querySelector(`[data-device-group="${field.group}"]`).append(picker);
     }
 
-    const name = this.shadowRoot.querySelector("ha-textfield");
+    const presetSelect = this.shadowRoot.querySelector(".preset-select");
+    presetSelect.value = preset;
+    presetSelect.addEventListener("selected", (event) => this._applyPreset(event.target.value));
+
+    const components = this.shadowRoot.querySelector(".components");
+    for (const component of COMPONENT_OPTIONS) {
+      const row = document.createElement("div");
+      row.className = "component";
+      row.innerHTML = `<div><div class="component-name">${component.label}</div><div class="component-description">${component.description}</div></div><ha-select label="${component.label} mode">${selectMarkup(MODE_OPTIONS)}</ha-select>`;
+      const select = row.querySelector("ha-select");
+      select.value = this._config.components?.[component.key] ?? "full";
+      select.addEventListener("selected", (event) => this._change(["components", component.key], event.target.value));
+      components.append(row);
+    }
+
+    const name = this.shadowRoot.querySelector(".name-field");
     name.value = this._config.name ?? "";
     name.addEventListener("input", (event) => this._change(["name"], event.target.value));
   }
@@ -621,6 +688,13 @@ class AquardCardEditor extends HTMLElement {
     for (const picker of this.shadowRoot.querySelectorAll("ha-entity-picker")) picker.hass = this._hass;
   }
 
+  _applyPreset(preset) {
+    const config = applyLayoutPreset(this._config, preset);
+    if (config === this._config) return;
+    this._config = config;
+    dispatchConfigChanged(this, config);
+  }
+
   _change(path, value) {
     const config = updateConfigProperty(this._config, path, value);
     this._config = config;
@@ -628,10 +702,7 @@ class AquardCardEditor extends HTMLElement {
   }
 }
 
-if (!customElements.get("aquard-card-editor")) {
-  customElements.define("aquard-card-editor", AquardCardEditor);
-}
-
+if (!customElements.get("aquard-card-editor")) customElements.define("aquard-card-editor", AquardCardEditor);
 
 
 const METRICS = [
@@ -736,6 +807,14 @@ export class AquardCard extends HTMLElement {
     return {
       profile: "spa",
       entities: {},
+      components: {
+        water_status: "full",
+        temperature: "full",
+        actions: "full",
+        measurements: "full",
+        controls: "full",
+        details: "full",
+      },
     };
   }
 
@@ -777,6 +856,18 @@ export class AquardCard extends HTMLElement {
 
   _render() {
     if (!this._config || !this.shadowRoot) return;
+
+    if (!hasMeaningfulEntities(this._config)) {
+      this.shadowRoot.innerHTML = `
+        <style>${styles}</style>
+        <ha-card class="setup-card">
+          <div class="setup-state" role="status">
+            <ha-icon icon="mdi:water-cog-outline" aria-hidden="true"></ha-icon>
+            <div><h2>Aquard setup</h2><p>Select your Spa entities in the card configuration to begin.</p></div>
+          </div>
+        </ha-card>`;
+      return;
+    }
 
     const entities = this._config.entities;
     const temperature = readEntity(this._hass, entities.water_temperature, { numeric: true });
@@ -1027,6 +1118,7 @@ if (!window.customCards.some((card) => card.type === "aquard-card")) {
   window.customCards.push({
     type: "aquard-card",
     name: "Aquard",
-    description: "A modern water monitoring dashboard card for Home Assistant.",
+    description: "Premium water monitoring and control for spas and future water profiles.",
+    preview: true,
   });
 }
