@@ -4,6 +4,7 @@ import { evaluateSpaWaterQuality, SPA_WATER_QUALITY_PROFILE } from "../src/water
 import { temperatureToArc } from "../src/components/temperature-gauge.js";
 import { renderStatusIndicator, STATUS_INDICATOR_GEOMETRY } from "../src/components/status-indicator.js";
 import { styles } from "../src/styles.js";
+import { dispatchConfigChanged, updateConfigProperty } from "../src/editor/editor-helpers.js";
 
 globalThis.HTMLElement = class {};
 const registeredElements = new Map();
@@ -12,8 +13,12 @@ globalThis.customElements = {
   get: (name) => registeredElements.get(name),
 };
 globalThis.window = { customCards: [] };
+globalThis.document = { createElement: (name) => ({ localName: name }) };
 
 const { AquardCard } = await import("../src/aquard-card.js");
+const { AquardCardEditor } = await import("../src/editor/aquard-card-editor.js");
+assert.equal(AquardCard.getConfigElement().localName, "aquard-card-editor");
+assert.deepEqual(AquardCard.getStubConfig(), { profile: "spa", entities: {} });
 assert.equal(typeof AquardCard.prototype.getGridOptions, "function");
 assert.deepEqual(AquardCard.prototype.getGridOptions(), {
   columns: 12,
@@ -28,6 +33,29 @@ assert.equal(legacy.entities.water_temperature, "sensor.water");
 const modern = normalizeConfig({ entities: { ph: "sensor.ph" } });
 assert.equal(modern.entities.ph, "sensor.ph");
 assert.equal(modern.name, "Aquard");
+const yamlConfig = { name: "Backyard spa", entities: { ph: "sensor.ph", climate: "climate.spa" }, future_option: { enabled: true } };
+const loadedEditor = Object.create(AquardCardEditor.prototype);
+loadedEditor._render = () => {};
+loadedEditor.setConfig(yamlConfig);
+assert.equal(loadedEditor._config, yamlConfig, "the editor must load the original YAML configuration");
+
+const editedConfig = updateConfigProperty(yamlConfig, ["entities", "ph"], "sensor.new_ph");
+assert.equal(editedConfig.entities.ph, "sensor.new_ph");
+assert.equal(editedConfig.entities.climate, "climate.spa");
+assert.deepEqual(editedConfig.future_option, { enabled: true });
+assert.notEqual(editedConfig, yamlConfig);
+assert.notEqual(editedConfig.entities, yamlConfig.entities);
+
+let configEvent;
+dispatchConfigChanged({ dispatchEvent: (event) => { configEvent = event; } }, editedConfig);
+assert.equal(configEvent.type, "config-changed");
+assert.equal(configEvent.detail.config, editedConfig);
+assert.equal(configEvent.bubbles, true);
+assert.equal(configEvent.composed, true);
+
+const missingEntityEditor = Object.create(AquardCardEditor.prototype);
+missingEntityEditor.shadowRoot = { querySelectorAll: () => [] };
+assert.doesNotThrow(() => { missingEntityEditor.hass = { states: {} }; });
 assert.throws(() => normalizeConfig({ entities: "sensor.invalid" }), /YAML mapping/);
 assert.throws(() => normalizeConfig({}), /entities mapping/);
 

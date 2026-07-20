@@ -129,6 +129,14 @@ Refresh the browser (`Ctrl+F5`) after installation.
 
 ## Configuration
 
+### Visual Configuration Editor
+
+Aquard can be configured directly in Home Assistant's visual card editor. The editor includes the profile, all supported device entities, and the card name, so YAML is not required.
+
+YAML configuration remains fully supported and existing configurations continue to work unchanged. The currently supported profile is **Spa**. Additional profiles, including Pool, Aquarium, and Pond, will be added in future releases.
+
+### YAML Configuration
+
 Basic example:
 
 ```yaml

@@ -4,6 +4,7 @@ import { renderTemperatureGauge } from "./components/temperature-gauge.js";
 import { renderStatusIndicator } from "./components/status-indicator.js";
 import { renderTargetArrow } from "./components/target-temperature-control.js";
 import { styles } from "./styles.js";
+import "./editor/aquard-card-editor.js";
 
 const METRICS = [
   ["ph", "pH", "mdi:water-outline"],
@@ -99,6 +100,17 @@ const WATER_LINE_DECORATION = `
   </svg>`;
 
 export class AquardCard extends HTMLElement {
+  static getConfigElement() {
+    return document.createElement("aquard-card-editor");
+  }
+
+  static getStubConfig() {
+    return {
+      profile: "spa",
+      entities: {},
+    };
+  }
+
   constructor() {
     super();
     this.attachShadow({ mode: "open" });

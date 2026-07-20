@@ -409,6 +409,124 @@ const styles = `
   @container(max-width:390px){.status-panel,.temperature-panel{min-height:0}.status-orb{width:82px}.temperature-gauge{width:102px}.status-headline{font-size:2rem}.temperature-reading{font-size:3.1rem}.metric-grid{grid-template-columns:minmax(0,1fr)}.metric-state-text{display:none}}
 `;
 
+const AQUARD_PROFILES = Object.freeze([
+  { value: "spa", label: "Spa" },
+]);
+
+const DEVICE_FIELDS = Object.freeze([
+  { key: "climate", label: "Climate", domains: ["climate"] },
+  { key: "water_temperature", label: "Temperature sensor", domains: ["sensor"] },
+  { key: "ph", label: "pH sensor", domains: ["sensor"] },
+  { key: "orp", label: "ORP sensor", domains: ["sensor"] },
+  { key: "tds", label: "TDS sensor", domains: ["sensor"] },
+  { key: "ec", label: "EC sensor", domains: ["sensor"] },
+  { key: "power", label: "Power", domains: ["switch"] },
+  { key: "heater", label: "Heater", domains: ["climate", "switch"] },
+  { key: "filter", label: "Filter", domains: ["switch"] },
+  { key: "bubbles", label: "Bubbles", domains: ["switch", "select"] },
+]);
+
+
+function updateConfigProperty(config, path, value) {
+  const nextConfig = { ...(config ?? {}) };
+  if (path.length === 1) {
+    setOrDelete(nextConfig, path[0], value);
+    return nextConfig;
+  }
+
+  const [parent, property] = path;
+  nextConfig[parent] = { ...(config?.[parent] ?? {}) };
+  setOrDelete(nextConfig[parent], property, value);
+  return nextConfig;
+}
+
+function dispatchConfigChanged(element, config) {
+  element.dispatchEvent(new CustomEvent("config-changed", {
+    detail: { config },
+    bubbles: true,
+    composed: true,
+  }));
+}
+
+function setOrDelete(target, property, value) {
+  if (value === "" || value === undefined || value === null) delete target[property];
+  else target[property] = value;
+}
+
+
+
+class AquardCardEditor extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" });
+  }
+
+  setConfig(config) {
+    this._config = config && typeof config === "object" ? config : {};
+    this._render();
+  }
+
+  set hass(hass) {
+    this._hass = hass;
+    this._syncHass();
+  }
+
+  _render() {
+    if (!this.shadowRoot || !this._config) return;
+    this.shadowRoot.innerHTML = `
+      <style>
+        :host{display:block}.section{border-top:1px solid var(--divider-color);padding:20px 0 4px}.section:first-of-type{border-top:0;padding-top:4px}
+        h3{font-size:16px;font-weight:500;margin:0 0 14px}ha-select,ha-entity-picker,ha-textfield{display:block;margin-bottom:16px;width:100%}
+      </style>
+      <div class="section profile"><h3>Profile</h3><ha-select label="Profile"></ha-select></div>
+      <div class="section devices"><h3>Devices</h3><div class="device-fields"></div></div>
+      <div class="section advanced"><h3>Advanced</h3><ha-textfield label="Name"></ha-textfield></div>
+    `;
+
+    const profile = this.shadowRoot.querySelector("ha-select");
+    profile.value = this._config.profile ?? "spa";
+    for (const option of AQUARD_PROFILES) {
+      const item = document.createElement("mwc-list-item");
+      item.value = option.value;
+      item.textContent = option.label;
+      profile.append(item);
+    }
+    profile.addEventListener("selected", (event) => this._change(["profile"], event.target.value));
+
+    const fields = this.shadowRoot.querySelector(".device-fields");
+    for (const field of DEVICE_FIELDS) {
+      const picker = document.createElement("ha-entity-picker");
+      picker.label = field.label;
+      picker.value = this._config.entities?.[field.key] ?? "";
+      picker.hass = this._hass;
+      picker.includeDomains = field.domains;
+      picker.allowCustomEntity = true;
+      picker.addEventListener("value-changed", (event) => this._change(["entities", field.key], event.detail?.value));
+      fields.append(picker);
+    }
+
+    const name = this.shadowRoot.querySelector("ha-textfield");
+    name.value = this._config.name ?? "";
+    name.addEventListener("input", (event) => this._change(["name"], event.target.value));
+  }
+
+  _syncHass() {
+    if (!this.shadowRoot) return;
+    for (const picker of this.shadowRoot.querySelectorAll("ha-entity-picker")) picker.hass = this._hass;
+  }
+
+  _change(path, value) {
+    const config = updateConfigProperty(this._config, path, value);
+    this._config = config;
+    dispatchConfigChanged(this, config);
+  }
+}
+
+if (!customElements.get("aquard-card-editor")) {
+  customElements.define("aquard-card-editor", AquardCardEditor);
+}
+
+
 
 const METRICS = [
   ["ph", "pH", "mdi:water-outline"],
@@ -504,6 +622,17 @@ const WATER_LINE_DECORATION = `
   </svg>`;
 
 export class AquardCard extends HTMLElement {
+  static getConfigElement() {
+    return document.createElement("aquard-card-editor");
+  }
+
+  static getStubConfig() {
+    return {
+      profile: "spa",
+      entities: {},
+    };
+  }
+
   constructor() {
     super();
     this.attachShadow({ mode: "open" });
