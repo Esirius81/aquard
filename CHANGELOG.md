@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Sprint 2 — Modular card architecture
+
+- Added six canonical runtime components: water status, temperature, actions, measurements, controls, and details.
+- Added optional `full`, `compact`, and `hidden` component display modes with backward-compatible full defaults.
+- Added centralized, non-mutating configuration normalization with safe invalid-mode fallback and preservation of unknown properties.
+- Added focused-card composition, capability-aware compact rendering, and visibility-aware card-size estimates.
+- Preserved existing service calls, optimistic temperature behavior, visual editor configuration round-tripping, and the single Aquard card registration.
+
 - Rename PureSpa Card to Aquard, including the custom element and distributable module.
 - Retain `custom:purespa-card` as a deprecated compatibility alias.
 - Make the card fill the width allocated by Home Assistant and improve wide dashboard grid sizing.

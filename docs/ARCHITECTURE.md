@@ -151,6 +151,16 @@ The reusable premium status SVG lives in `src/components/status-indicator.js`. I
 
 Target-temperature capability, step, bounds, and service payload resolution live in `src/helpers.js`. The reusable premium arrow artwork lives in `src/components/target-temperature-control.js`; the card only coordinates interaction and pending state.
 
+### Runtime component registry
+
+Aquard remains a single registered card composed from six canonical internal component IDs: `water_status`, `temperature`, `actions`, `measurements`, `controls`, and `details`. Each render module receives derived display data and a canonical `full`, `compact`, or `hidden` mode. Hidden renderers return no wrapper; compact renderers omit secondary information rather than scaling the full UI.
+
+`src/config/component-config.js` is the single source of component IDs, valid modes, and default modes. `src/config/config-normalizer.js` clones and normalizes user configuration, merges defaults, validates known component modes, and preserves unknown top-level and component properties. Render modules do not contain fallback mode values.
+
+Shared state derivation remains in the parent card and its helpers. Water-quality thresholds and scoring stay in `src/water-quality.js`; entity availability, service actions, target-temperature capability, and optimistic state coordination stay outside the component renderers.
+
+The existing status summary is assigned to `actions` while remaining visually nested in `water_status` in full mode. The existing brand and sensor-availability header is assigned to `details`, because the current card has no separate expanded-detail area.
+
 ---
 
 ## Theme System

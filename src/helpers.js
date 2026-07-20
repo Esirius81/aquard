@@ -2,29 +2,6 @@ const UNAVAILABLE_STATES = new Set(["unknown", "unavailable"]);
 const INACTIVE_CONTROL_STATES = new Set(["off", "uit"]);
 const CLIMATE_SUPPORT_TARGET_TEMPERATURE = 1;
 
-export function normalizeConfig(config) {
-  if (!config || typeof config !== "object") {
-    throw new Error("Aquard requires a configuration object");
-  }
-
-  if (config.entities !== undefined) {
-    if (!config.entities || typeof config.entities !== "object" || Array.isArray(config.entities)) {
-      throw new Error("Aquard entities must be a YAML mapping");
-    }
-
-    return { name: config.name || "Aquard", entities: { ...config.entities } };
-  }
-
-  if (typeof config.entity === "string" && config.entity.trim()) {
-    return {
-      name: config.name || "Aquard",
-      entities: { water_temperature: config.entity },
-    };
-  }
-
-  throw new Error("Aquard requires an entities mapping");
-}
-
 export function readEntity(hass, entityId, options = {}) {
   if (!entityId) {
     return unavailableResult("Not configured", "not-configured");

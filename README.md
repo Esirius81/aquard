@@ -165,6 +165,70 @@ entities:
 
 ---
 
+## Component display modes
+
+Aquard remains one reusable Home Assistant card. Its six internal components can independently use `full`, `compact`, or `hidden` display modes:
+
+- `water_status` — overall water state and score
+- `temperature` — current and target temperature controls
+- `actions` — warnings and recommended guidance
+- `measurements` — pH, ORP, EC, and TDS readings
+- `controls` — power, filter, heater, and bubbles
+- `details` — the card header and secondary availability metadata
+
+The `components` mapping is optional. When it is absent, or when an individual component key is omitted, that component defaults to `full`. Existing YAML therefore keeps the complete premium card. Unknown configuration and component keys are preserved and safely ignored at runtime.
+
+### Full default card
+
+```yaml
+type: custom:aquard-card
+profile: spa
+```
+
+### Status-only card
+
+```yaml
+type: custom:aquard-card
+profile: spa
+components:
+  water_status: full
+  temperature: hidden
+  actions: hidden
+  measurements: hidden
+  controls: hidden
+  details: hidden
+```
+
+### Compact monitoring card
+
+```yaml
+type: custom:aquard-card
+profile: spa
+components:
+  water_status: compact
+  temperature: compact
+  actions: hidden
+  measurements: compact
+  controls: hidden
+  details: hidden
+```
+
+### Control card
+
+```yaml
+type: custom:aquard-card
+profile: spa
+components:
+  water_status: hidden
+  temperature: compact
+  actions: hidden
+  measurements: hidden
+  controls: full
+  details: hidden
+```
+
+Compact mode intentionally reduces information density while retaining essential values and touch-friendly controls. Hidden components render no wrapper or spacing. Component modes never override entity capability checks; for example, target controls still require a compatible climate entity.
+
 ## Supported Entities
 
 | Entity | Required | Description |

@@ -1,8 +1,14 @@
-import { formatTargetTemperature, getControlAction, getTargetTemperatureAdjustment, isControlActive, normalizeConfig, readEntity, readSwitch, resolveTargetTemperature, titleCase } from "./helpers.js";
+import { formatTargetTemperature, getControlAction, getTargetTemperatureAdjustment, isControlActive, readEntity, readSwitch, resolveTargetTemperature, titleCase } from "./helpers.js";
 import { evaluateSpaWaterQuality } from "./water-quality.js";
-import { renderTemperatureGauge } from "./components/temperature-gauge.js";
-import { renderStatusIndicator } from "./components/status-indicator.js";
 import { renderTargetArrow } from "./components/target-temperature-control.js";
+import { normalizeAquardConfig } from "./config/config-normalizer.js";
+import { getComponentMode, isComponentVisible } from "./config/component-config.js";
+import { renderWaterStatus } from "./components/water-status.js";
+import { renderTemperature } from "./components/temperature.js";
+import { renderActions } from "./components/actions.js";
+import { renderMeasurements } from "./components/measurements.js";
+import { renderControls } from "./components/controls.js";
+import { renderDetails } from "./components/details.js";
 import { styles } from "./styles.js";
 import "./editor/aquard-card-editor.js";
 
@@ -121,7 +127,7 @@ export class AquardCard extends HTMLElement {
   }
 
   setConfig(config) {
-    this._config = normalizeConfig(config);
+    this._config = normalizeAquardConfig(config);
     this._render();
   }
 
@@ -132,7 +138,12 @@ export class AquardCard extends HTMLElement {
   }
 
   getCardSize() {
-    return 6;
+    if (!this._config) return 1;
+    const weights = { water_status: [2, 1], temperature: [2, 1], actions: [1, 1], measurements: [2, 1], controls: [1, 1], details: [1, 1] };
+    return Math.max(1, Object.entries(weights).reduce((size, [componentId, [full, compact]]) => {
+      const mode = getComponentMode(this._config, componentId);
+      return size + (mode === "full" ? full : mode === "compact" ? compact : 0);
+    }, 0));
   }
 
   getGridOptions() {
@@ -165,32 +176,26 @@ export class AquardCard extends HTMLElement {
       ? this._pendingTarget.value
       : targetControl?.target;
     const displayControl = targetControl ? { ...targetControl, target: displayedTarget } : undefined;
+    const modes = Object.fromEntries(["water_status", "temperature", "actions", "measurements", "controls", "details"].map((id) => [id, getComponentMode(this._config, id)]));
+    const waterVisible = isComponentVisible(this._config, "water_status");
+    const hasMeasurements = METRICS.some(([key]) => Boolean(entities[key]));
+    const hasControls = controls.some((control) => Boolean(control[3]));
+    const hasAction = waterQuality.status !== "excellent" && waterQuality.status !== "unknown";
+    const actionsMarkup = renderActions({ mode: modes.actions, hasAction, standalone: !waterVisible });
+    const waterStatusMarkup = renderWaterStatus({ status: waterQuality.status, mode: modes.water_status, actions: waterVisible ? actionsMarkup : "" });
+    const temperatureMarkup = renderTemperature({ mode: modes.temperature, reading: temperature, targetControl: displayControl ? this._renderTargetControl(displayControl) : "" });
+    const heroMarkup = waterStatusMarkup || temperatureMarkup || (!waterVisible ? actionsMarkup : "")
+      ? `<div class="hero-grid${waterStatusMarkup && temperatureMarkup ? "" : " hero-grid--focused"}">${(waterStatusMarkup || temperatureMarkup) ? WATER_LINE_DECORATION : ""}${waterStatusMarkup}${temperatureMarkup}${!waterVisible ? actionsMarkup : ""}</div>`
+      : "";
 
     this.shadowRoot.innerHTML = `
       <style>${styles}</style>
       <ha-card>
-        <header class="aquard-header">
-          <div class="brand-lockup">
-            <div><div class="brand-name"></div><div class="brand-context"></div></div>
-            <span class="brand-mark" aria-hidden="true"><ha-icon icon="mdi:waves"></ha-icon></span>
-          </div>
-          <div class="header-availability ${temperature.availabilityClass}"><span class="status-dot"></span><span class="header-availability-text"></span></div>
-        </header>
+        ${renderDetails({ mode: modes.details, name: this._config.name, availabilityClass: temperature.availabilityClass })}
         <main>
-          <div class="hero-grid">
-            ${WATER_LINE_DECORATION}
-            <section class="hero-panel status-panel status-${waterQuality.status}">
-              <div class="status-orb">${renderStatusIndicator(waterQuality.status)}</div>
-              <div class="hero-copy"><div class="status-headline"></div></div>
-              <div class="status-summary"><div class="status-action"></div><div class="status-support"><span class="status-dot"></span><span class="status-support-text"></span></div></div>
-            </section>
-            <section class="hero-panel temperature-panel ${temperature.availabilityClass}">
-              <div class="temperature-copy"><div class="section-label temperature-label"></div><div class="temperature-reading"><span class="temperature-value"><span class="temperature-whole"></span><span class="temperature-decimal"></span></span><span class="temperature-unit"></span></div>${displayControl ? this._renderTargetControl(displayControl) : ""}</div>
-              <div class="temperature-gauge">${renderTemperatureGauge(temperature.stateObj?.state)}</div>
-            </section>
-          </div>
-          <section class="measurement-section" aria-label="${UI_TEXT.waterQualityMeasurements}"><div class="metric-grid"></div></section>
-          <section class="equipment-section" aria-label="${UI_TEXT.equipmentStatus}"><div class="equipment-grid"></div></section>
+          ${heroMarkup}
+          ${renderMeasurements({ mode: modes.measurements, hasMeasurements })}
+          ${renderControls({ mode: modes.controls, hasControls })}
         </main>
       </ha-card>
     `;
@@ -199,12 +204,13 @@ export class AquardCard extends HTMLElement {
     this._setText(".brand-context", UI_TEXT.dashboard);
     this._setText(".header-availability-text", temperature.availabilityClass === "available" ? UI_TEXT.available : temperature.availability);
     this._setText(".status-headline", WATER_STATUS_TEXT[waterQuality.status]);
+    this._setText(".status-score", waterQuality.score === null ? "" : `${waterQuality.score}% ${UI_TEXT.quality}`);
     this._setText(".status-action", WATER_ACTION_TEXT[waterQuality.status]);
     this._setText(".status-support-text", WATER_MESSAGE_TEXT[waterQuality.messageKey]);
     this._setText(".temperature-label", UI_TEXT.waterTemperature);
     this._setTemperature(temperature.value);
     this._setText(".temperature-unit", temperature.unit);
-    if (displayControl) {
+    if (displayControl && temperatureMarkup) {
       const decreaseButton = this.shadowRoot.querySelector('[data-target-direction="-1"]');
       const increaseButton = this.shadowRoot.querySelector('[data-target-direction="1"]');
       decreaseButton.addEventListener("click", () => this._adjustTargetTemperature(-1));
@@ -212,10 +218,13 @@ export class AquardCard extends HTMLElement {
     }
 
     const equipmentGrid = this.shadowRoot.querySelector(".equipment-grid");
-    for (const control of controls) equipmentGrid.append(this._createEquipmentTile(...control));
+    if (equipmentGrid) for (const control of controls) {
+      if (modes.controls === "full" || control[3]) equipmentGrid.append(this._createEquipmentTile(...control));
+    }
 
     const metricGrid = this.shadowRoot.querySelector(".metric-grid");
-    for (const [key, label, icon] of METRICS) {
+    if (metricGrid) for (const [key, label, icon] of METRICS) {
+      if (modes.measurements === "compact" && !entities[key]) continue;
       metricGrid.append(this._createMetric(
         label,
         icon,
@@ -377,7 +386,8 @@ export class AquardCard extends HTMLElement {
   }
 
   _setText(selector, value) {
-    this.shadowRoot.querySelector(selector).textContent = value;
+    const element = this.shadowRoot.querySelector(selector);
+    if (element) element.textContent = value ?? "";
   }
 }
 

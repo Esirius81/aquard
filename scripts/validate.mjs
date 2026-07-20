@@ -1,5 +1,13 @@
 import assert from "node:assert/strict";
-import { formatTargetTemperature, getControlAction, getTargetTemperatureAdjustment, isControlActive, normalizeConfig, readClimate, readEntity, readSwitch, resolveTargetTemperature } from "../src/helpers.js";
+import { formatTargetTemperature, getControlAction, getTargetTemperatureAdjustment, isControlActive, readClimate, readEntity, readSwitch, resolveTargetTemperature } from "../src/helpers.js";
+import { normalizeAquardConfig } from "../src/config/config-normalizer.js";
+import { COMPONENT_IDS, getComponentMode, isComponentVisible } from "../src/config/component-config.js";
+import { renderWaterStatus } from "../src/components/water-status.js";
+import { renderTemperature } from "../src/components/temperature.js";
+import { renderActions } from "../src/components/actions.js";
+import { renderMeasurements } from "../src/components/measurements.js";
+import { renderControls } from "../src/components/controls.js";
+import { renderDetails } from "../src/components/details.js";
 import { evaluateSpaWaterQuality, SPA_WATER_QUALITY_PROFILE } from "../src/water-quality.js";
 import { temperatureToArc } from "../src/components/temperature-gauge.js";
 import { renderStatusIndicator, STATUS_INDICATOR_GEOMETRY } from "../src/components/status-indicator.js";
@@ -27,10 +35,10 @@ assert.deepEqual(AquardCard.prototype.getGridOptions(), {
 assert.equal(customElements.get("aquard-card"), AquardCard);
 assert.equal(customElements.get("purespa-card").prototype instanceof AquardCard, true);
 
-const legacy = normalizeConfig({ entity: "sensor.water", name: "Legacy" });
+const legacy = normalizeAquardConfig({ entity: "sensor.water", name: "Legacy" });
 assert.equal(legacy.entities.water_temperature, "sensor.water");
 
-const modern = normalizeConfig({ entities: { ph: "sensor.ph" } });
+const modern = normalizeAquardConfig({ entities: { ph: "sensor.ph" } });
 assert.equal(modern.entities.ph, "sensor.ph");
 assert.equal(modern.name, "Aquard");
 const yamlConfig = { name: "Backyard spa", entities: { ph: "sensor.ph", climate: "climate.spa" }, future_option: { enabled: true } };
@@ -45,6 +53,13 @@ assert.equal(editedConfig.entities.climate, "climate.spa");
 assert.deepEqual(editedConfig.future_option, { enabled: true });
 assert.notEqual(editedConfig, yamlConfig);
 assert.notEqual(editedConfig.entities, yamlConfig.entities);
+const componentEditorConfig = { ...yamlConfig, components: { temperature: "compact", custom: "future" } };
+const unrelatedEdit = updateConfigProperty(componentEditorConfig, ["name"], "Edited");
+assert.deepEqual(unrelatedEdit.components, componentEditorConfig.components);
+const componentEdit = updateConfigProperty(componentEditorConfig, ["components", "temperature"], "hidden");
+assert.equal(componentEdit.components.temperature, "hidden");
+assert.equal(componentEdit.components.custom, "future");
+assert.deepEqual(componentEdit.future_option, { enabled: true });
 
 let configEvent;
 dispatchConfigChanged({ dispatchEvent: (event) => { configEvent = event; } }, editedConfig);
@@ -56,8 +71,47 @@ assert.equal(configEvent.composed, true);
 const missingEntityEditor = Object.create(AquardCardEditor.prototype);
 missingEntityEditor.shadowRoot = { querySelectorAll: () => [] };
 assert.doesNotThrow(() => { missingEntityEditor.hass = { states: {} }; });
-assert.throws(() => normalizeConfig({ entities: "sensor.invalid" }), /YAML mapping/);
-assert.throws(() => normalizeConfig({}), /entities mapping/);
+assert.throws(() => normalizeAquardConfig({ entities: "sensor.invalid" }), /YAML mapping/);
+assert.throws(() => normalizeAquardConfig({}), /entities mapping/);
+
+const originalConfig = { entities: { ph: "sensor.ph" }, components: { temperature: "compact", future_component: "future" }, future_option: { enabled: true } };
+const normalizedComponents = normalizeAquardConfig(originalConfig);
+assert.deepEqual(Object.fromEntries(COMPONENT_IDS.map((id) => [id, getComponentMode(normalizedComponents, id)])), {
+  water_status: "full", temperature: "compact", actions: "full", measurements: "full", controls: "full", details: "full",
+});
+assert.equal(normalizedComponents.components.future_component, "future");
+assert.deepEqual(normalizedComponents.future_option, { enabled: true });
+assert.notEqual(normalizedComponents, originalConfig);
+assert.notEqual(normalizedComponents.entities, originalConfig.entities);
+assert.notEqual(normalizedComponents.components, originalConfig.components);
+assert.deepEqual(originalConfig.components, { temperature: "compact", future_component: "future" });
+for (const mode of ["full", "compact", "hidden"]) assert.equal(getComponentMode(normalizeAquardConfig({ entities: {}, components: { controls: mode } }), "controls"), mode);
+const originalWarn = console.warn;
+console.warn = () => {};
+assert.equal(getComponentMode(normalizeAquardConfig({ entities: {}, components: { controls: "invalid" } }), "controls"), "full");
+console.warn = originalWarn;
+assert.equal(isComponentVisible(normalizedComponents, "temperature"), true);
+assert.equal(isComponentVisible(normalizeAquardConfig({ entities: {}, components: { temperature: "hidden" } }), "temperature"), false);
+
+const availableReading = { stateObj: { state: "38" }, availabilityClass: "available" };
+assert.match(renderWaterStatus({ status: "excellent", mode: "full", actions: renderActions({ mode: "full", hasAction: false }) }), /data-component="water_status"/);
+assert.equal(renderWaterStatus({ status: "excellent", mode: "hidden" }), "");
+assert.match(renderWaterStatus({ status: "excellent", mode: "compact" }), /aquard-component--compact/);
+assert.equal(renderTemperature({ mode: "hidden", reading: availableReading }), "");
+assert.match(renderTemperature({ mode: "compact", reading: availableReading }), /temperature-panel--compact/);
+assert.equal(renderMeasurements({ mode: "hidden", hasMeasurements: true }), "");
+assert.equal(renderMeasurements({ mode: "compact", hasMeasurements: false }), "");
+assert.match(renderControls({ mode: "compact", hasControls: true }), /equipment-section--compact/);
+assert.equal(renderDetails({ mode: "hidden", name: "Aquard", availabilityClass: "available" }), "");
+const fullSizeCard = Object.create(AquardCard.prototype);
+fullSizeCard._config = normalizeAquardConfig({ entities: {} });
+const focusedSizeCard = Object.create(AquardCard.prototype);
+focusedSizeCard._config = normalizeAquardConfig({ entities: {}, components: { temperature: "hidden", actions: "hidden", measurements: "hidden", controls: "hidden", details: "hidden" } });
+const hiddenSizeCard = Object.create(AquardCard.prototype);
+hiddenSizeCard._config = normalizeAquardConfig({ entities: {}, components: Object.fromEntries(COMPONENT_IDS.map((id) => [id, "hidden"])) });
+assert.ok(fullSizeCard.getCardSize() > focusedSizeCard.getCardSize());
+assert.equal(focusedSizeCard.getCardSize(), 2);
+assert.equal(hiddenSizeCard.getCardSize(), 1);
 
 const hass = {
   states: {
