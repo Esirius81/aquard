@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
-import { formatTargetTemperature, getControlAction, getTargetTemperatureAdjustment, isControlActive, readClimate, readEntity, readSwitch, resolveTargetTemperature } from "../src/helpers.js";
+import { readFile } from "node:fs/promises";
+import { formatTargetTemperature, getControlAction, getTargetTemperatureAdjustment, isControlActive, readClimate, readCurrentTemperature, readEntity, readSwitch, resolveTargetTemperature } from "../src/helpers.js";
 import { normalizeAquardConfig } from "../src/config/config-normalizer.js";
-import { COMPONENT_IDS, getComponentMode, isComponentVisible } from "../src/config/component-config.js";
+import { COMPONENT_IDS, getComponentMode, isComponentVisible, shouldShowSensorInformation } from "../src/config/component-config.js";
 import { renderWaterStatus } from "../src/components/water-status.js";
 import { renderTemperature } from "../src/components/temperature.js";
 import { renderActions } from "../src/components/actions.js";
@@ -83,6 +84,10 @@ assert.equal(configEvent.composed, true);
 const missingEntityEditor = Object.create(AquardCardEditor.prototype);
 missingEntityEditor.shadowRoot = { querySelectorAll: () => [] };
 assert.doesNotThrow(() => { missingEntityEditor.hass = { states: {} }; });
+const editorSource = await readFile(new URL("../src/editor/aquard-card-editor.js", import.meta.url), "utf8");
+assert.doesNotMatch(editorSource, /Layout preset|Components<|component-name|preset-select/);
+assert.match(editorSource, /Show sensor information/);
+assert.match(editorSource, /show_sensor_information/);
 assert.throws(() => normalizeAquardConfig({ entities: "sensor.invalid" }), /YAML mapping/);
 assert.throws(() => normalizeAquardConfig({}), /entities mapping/);
 assert.throws(() => normalizeAquardConfig({ profile: "pool", entities: {} }), /does not support profile/);
@@ -115,17 +120,29 @@ assert.equal(getComponentMode(normalizeAquardConfig({ entities: {}, components: 
 console.warn = originalWarn;
 assert.equal(isComponentVisible(normalizedComponents, "temperature"), true);
 assert.equal(isComponentVisible(normalizeAquardConfig({ entities: {}, components: { temperature: "hidden" } }), "temperature"), false);
+assert.equal(shouldShowSensorInformation({}), true);
+assert.equal(shouldShowSensorInformation({ show_sensor_information: true }), true);
+assert.equal(shouldShowSensorInformation({ show_sensor_information: false }), false);
+assert.match(renderMeasurements({ mode: "full", hasMeasurements: shouldShowSensorInformation({}) }), /measurement-section/);
+assert.equal(renderMeasurements({ mode: "full", hasMeasurements: shouldShowSensorInformation({ show_sensor_information: false }) }), "", "disabled sensor information must leave no wrapper or layout gap");
 
 const availableReading = { stateObj: { state: "38" }, availabilityClass: "available" };
-assert.match(renderWaterStatus({ status: "excellent", mode: "full", actions: renderActions({ mode: "full", hasAction: false }) }), /data-component="water_status"/);
+assert.match(renderWaterStatus({ status: "excellent", mode: "full", actions: renderActions({ mode: "full", hasStatus: true }) }), /data-component="water_status"/);
 assert.equal(renderWaterStatus({ status: "excellent", mode: "hidden" }), "");
 assert.match(renderWaterStatus({ status: "excellent", mode: "compact" }), /aquard-component--compact/);
 assert.equal(renderTemperature({ mode: "hidden", reading: availableReading }), "");
 assert.match(renderTemperature({ mode: "compact", reading: availableReading }), /temperature-panel--compact/);
 assert.equal(renderMeasurements({ mode: "hidden", hasMeasurements: true }), "");
 assert.equal(renderMeasurements({ mode: "compact", hasMeasurements: false }), "");
+assert.equal(renderMeasurements({ mode: "full", hasMeasurements: false }), "");
 assert.match(renderControls({ mode: "compact", hasControls: true }), /equipment-section--compact/);
+assert.equal(renderControls({ mode: "full", hasControls: false }), "");
+assert.equal(renderActions({ mode: "full", hasStatus: false }), "");
+assert.match(renderActions({ mode: "full", hasStatus: true }), /status-action/);
+assert.equal(renderActions({ mode: "hidden", hasStatus: true }), "");
+assert.equal(renderTemperature({ mode: "full", reading: availableReading, configured: false }), "");
 assert.equal(renderDetails({ mode: "hidden", name: "Aquard", availabilityClass: "available" }), "");
+assert.doesNotMatch(renderDetails({ mode: "full", name: "Aquard", availabilityClass: "not-configured", showAvailability: false }), /header-availability/);
 const fullSizeCard = Object.create(AquardCard.prototype);
 fullSizeCard._config = normalizeAquardConfig({ entities: {} });
 const focusedSizeCard = Object.create(AquardCard.prototype);
@@ -142,7 +159,7 @@ const hass = {
     "switch.power": { state: "on", attributes: {} },
     "select.bubbles": { state: "High", attributes: { options: ["Off", "Low", "High"] } },
     "select.bubbles_off": { state: "uit", attributes: { options: ["uit", "hoog"] } },
-    "climate.spa": { state: "heat", attributes: { temperature: 38, temperature_unit: "°C", supported_features: 1, target_temp_step: 0.5, min_temp: 30, max_temp: 40, hvac_modes: ["off", "heat"] } },
+    "climate.spa": { state: "heat", attributes: { current_temperature: 36.5, temperature: 38, temperature_unit: "°C", supported_features: 1, target_temp_step: 0.5, min_temp: 30, max_temp: 40, hvac_modes: ["off", "heat"] } },
     "climate.spa_off": { state: "off", attributes: { temperature: 38, supported_features: 1, hvac_modes: ["off", "heat"] } },
     "climate.no_target": { state: "heat", attributes: { supported_features: 1 } },
     "climate.unsupported": { state: "heat", attributes: { temperature: 36, supported_features: 0 } },
@@ -157,6 +174,9 @@ assert.match(ph.value, /^7[.,]25$/);
 assert.equal(readEntity(hass, undefined).value, "Not configured");
 assert.equal(readEntity(hass, "sensor.bad").value, "Unavailable");
 assert.equal(readSwitch(hass, "switch.power").value, "On");
+assert.match(readCurrentTemperature(hass, { climate: "climate.spa" }).value, /^36[.,]5$/);
+assert.equal(readCurrentTemperature(hass, { water_temperature: "sensor.ph", climate: "climate.spa" }).value, ph.value, "a separate temperature sensor takes precedence over climate");
+assert.equal(readCurrentTemperature(hass, { climate: "climate.unavailable" }).availabilityClass, "unavailable");
 const climate = readClimate(hass, "climate.spa");
 assert.match(climate.value, /^Heat · 38 °C$/);
 assert.equal(climate.targetValue, "38 °C");
@@ -229,6 +249,14 @@ const excellentWater = evaluateSpaWaterQuality(base);
 assert.equal(excellentWater.status, "excellent");
 assert.equal(excellentWater.canUse, true);
 assert.equal(excellentWater.messageKey, "enjoy_your_spa");
+const hiddenSensorInformationWater = evaluateSpaWaterQuality(base);
+assert.deepEqual(hiddenSensorInformationWater, excellentWater, "sensor-section visibility must not affect water-quality calculations or actions");
+const hiddenSensorInformationAction = evaluateSpaWaterQuality({ ...base, orp: 550 });
+assert.equal(hiddenSensorInformationAction.status, "action_needed");
+assert.match(renderActions({ mode: "full", hasStatus: true }), /data-component="actions"/);
+assert.equal(evaluateSpaWaterQuality({ ph: 7.4 }).status, "excellent", "an absent optional measurement must not lower status");
+assert.equal(evaluateSpaWaterQuality({}).status, "unknown");
+assert.equal(evaluateSpaWaterQuality({}).score, null);
 
 for (const [value, severity] of [[7.4, "excellent"], [7.55, "excellent"], [7.62, "monitor"], [7.78, "monitor"], [7.82, "action_needed"], [8.01, "alert"]]) {
   assert.equal(evaluateSpaWaterQuality({ ...base, ph: value }).measurements.ph.severity, severity);

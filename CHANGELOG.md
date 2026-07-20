@@ -10,6 +10,16 @@
 - Added an intentional setup state for valid cards that do not have entities yet.
 - Preserved unknown, unavailable, legacy, and YAML configuration values through immutable targeted editor updates.
 
+### Sprint 3 polish — Automatic capability rendering
+
+- Automatically hide unconfigured measurement and equipment tiles while retaining unavailable states for configured entities.
+- Removed empty measurement, control, temperature, status, and action sections and added adaptive item-count grids.
+- Simplified the visual editor to profiles, grouped entities, and supported advanced fields.
+- Added climate current-temperature fallback while preserving separate-sensor precedence and thermostat capability checks.
+- Preserved Full, Compact, and Hidden component modes as advanced YAML-compatible runtime options.
+- Added the optional `show_sensor_information` editor toggle for hiding detailed sensor cards without affecting water-quality calculations or recommendations.
+- Restored the positive Actions panel for valid excellent water status, including “No action required” and “Enjoy your spa.”
+
 ### Sprint 2 — Modular card architecture
 
 - Added six canonical runtime components: water status, temperature, actions, measurements, controls, and details.

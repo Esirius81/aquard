@@ -135,12 +135,11 @@ Refresh the browser (`Ctrl+F5`) after installation.
 2. Search for and select **Aquard**.
 3. Keep the currently supported **Spa** profile selected.
 4. Select whichever Spa entities your installation provides.
-5. Choose **Dashboard**, **Compact**, or **Custom** under Appearance.
-6. With Custom selected, fine-tune each component as Full, Compact, or Hidden.
+5. Save the card. Aquard automatically composes the layout around the selected entities.
 
-New cards deliberately start without invented entity IDs. Until at least one entity is selected, the preview shows a modest **Aquard setup** message instead of fabricated readings or a configuration error. Every entity is optional, and unavailable configured entities remain stored. YAML configuration remains fully supported.
+New cards deliberately start without invented entity IDs. Until at least one entity is selected, the preview shows a modest **Aquard setup** message instead of fabricated readings or a configuration error. Every entity is optional: unconfigured sensors and equipment are hidden automatically, while configured but unavailable entities remain visible with an unavailable state. A card can contain only monitoring, only temperature, only controls, or the complete Spa dashboard. YAML configuration remains fully supported.
 
-The **Dashboard** preset uses the complete presentation with every component in Full mode. **Compact** condenses water status, temperature, and measurements while hiding actions, controls, and details. **Custom** preserves and exposes every individual component mode.
+When both a separate water-temperature sensor and a climate entity are configured, the separate sensor supplies the current reading and the climate entity supplies target-temperature controls. With only a climate entity, Aquard uses its `current_temperature` attribute.
 
 ### Visual Configuration Editor
 
@@ -156,6 +155,7 @@ Basic example:
 type: custom:aquard-card
 name: Aquard
 profile: spa
+show_sensor_information: true
 
 grid_options:
   columns: full
@@ -184,11 +184,13 @@ components:
   details: full
 ```
 
+`show_sensor_information` defaults to `true`. Set it to `false` to hide the detailed pH, ORP, EC, and TDS sensor information cards while keeping all water-quality calculations and action recommendations active.
+
 ---
 
-## Component display modes
+## Advanced YAML configuration: component display modes
 
-Aquard remains one reusable Home Assistant card. Its six internal components can independently use `full`, `compact`, or `hidden` display modes:
+Aquard remains one reusable Home Assistant card. Advanced YAML users can set its six internal components to `full`, `compact`, or `hidden`. These modes are intentionally not exposed in the standard visual editor:
 
 - `water_status` — overall water state and score
 - `temperature` — current and target temperature controls

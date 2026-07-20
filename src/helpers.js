@@ -47,6 +47,22 @@ export function readSwitch(hass, entityId) {
   return { ...result, value: result.value === "on" ? "On" : "Off" };
 }
 
+export function readCurrentTemperature(hass, entities = {}) {
+  if (entities.water_temperature) return readEntity(hass, entities.water_temperature, { numeric: true });
+  if (!entities.climate) return readEntity(hass, undefined, { numeric: true });
+  const stateObj = hass?.states?.[entities.climate];
+  if (!stateObj || UNAVAILABLE_STATES.has(stateObj.state)) return unavailableResult("Unavailable", "unavailable");
+  const value = Number(stateObj.attributes?.current_temperature);
+  if (!Number.isFinite(value)) return unavailableResult("Unavailable", "unavailable");
+  return {
+    value: new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(value),
+    unit: stateObj.attributes?.temperature_unit ?? "",
+    availability: "Available",
+    availabilityClass: "available",
+    stateObj: { ...stateObj, state: String(value) },
+  };
+}
+
 export function readClimate(hass, entityId) {
   const result = readEntity(hass, entityId);
   if (result.availabilityClass !== "available") return result;

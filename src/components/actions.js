@@ -1,5 +1,5 @@
-export function renderActions({ mode, hasAction, standalone = false }) {
-  if (mode === "hidden" || (mode === "compact" && !hasAction)) return "";
+export function renderActions({ mode, hasStatus, standalone = false }) {
+  if (mode === "hidden" || !hasStatus) return "";
   if (mode === "compact") {
     return `<aside class="aquard-component aquard-component--compact status-summary status-summary--compact${standalone ? " actions-standalone" : ""}" data-component="actions"><div class="status-action"></div></aside>`;
   }

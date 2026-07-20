@@ -1,8 +1,8 @@
-import { formatTargetTemperature, getControlAction, getTargetTemperatureAdjustment, isControlActive, readEntity, readSwitch, resolveTargetTemperature, titleCase } from "./helpers.js";
+import { formatTargetTemperature, getControlAction, getTargetTemperatureAdjustment, isControlActive, readCurrentTemperature, readEntity, readSwitch, resolveTargetTemperature, titleCase } from "./helpers.js";
 import { evaluateSpaWaterQuality } from "./water-quality.js";
 import { renderTargetArrow } from "./components/target-temperature-control.js";
 import { normalizeAquardConfig } from "./config/config-normalizer.js";
-import { getComponentMode, isComponentVisible } from "./config/component-config.js";
+import { getComponentMode, isComponentVisible, shouldShowSensorInformation } from "./config/component-config.js";
 import { renderWaterStatus } from "./components/water-status.js";
 import { renderTemperature } from "./components/temperature.js";
 import { renderActions } from "./components/actions.js";
@@ -178,14 +178,13 @@ export class AquardCard extends HTMLElement {
     }
 
     const entities = this._config.entities;
-    const temperature = readEntity(this._hass, entities.water_temperature, { numeric: true });
+    const hasTemperatureSource = Boolean(entities.water_temperature || entities.climate);
+    const temperature = readCurrentTemperature(this._hass, entities);
     const power = readSwitch(this._hass, entities.power);
-    const waterQuality = evaluateSpaWaterQuality({
-      ph: this._hass?.states?.[entities.ph]?.state,
-      orp: this._hass?.states?.[entities.orp]?.state,
-      ec: this._hass?.states?.[entities.ec]?.state,
-      tds: this._hass?.states?.[entities.tds]?.state,
-    });
+    const configuredMeasurements = Object.fromEntries(METRICS
+      .filter(([key]) => Boolean(entities[key]))
+      .map(([key]) => [key, this._hass?.states?.[entities[key]]?.state]));
+    const waterQuality = evaluateSpaWaterQuality(configuredMeasurements);
     const controls = [
       [UI_TEXT.power, power, "power", entities.power, false, false],
       [UI_TEXT.filter, readSwitch(this._hass, entities.filter), "filter", entities.filter, false, false],
@@ -200,11 +199,11 @@ export class AquardCard extends HTMLElement {
     const modes = Object.fromEntries(["water_status", "temperature", "actions", "measurements", "controls", "details"].map((id) => [id, getComponentMode(this._config, id)]));
     const waterVisible = isComponentVisible(this._config, "water_status");
     const hasMeasurements = METRICS.some(([key]) => Boolean(entities[key]));
+    const hasWaterStatus = hasMeasurements && waterQuality.score !== null;
     const hasControls = controls.some((control) => Boolean(control[3]));
-    const hasAction = waterQuality.status !== "excellent" && waterQuality.status !== "unknown";
-    const actionsMarkup = renderActions({ mode: modes.actions, hasAction, standalone: !waterVisible });
-    const waterStatusMarkup = renderWaterStatus({ status: waterQuality.status, mode: modes.water_status, actions: waterVisible ? actionsMarkup : "" });
-    const temperatureMarkup = renderTemperature({ mode: modes.temperature, reading: temperature, targetControl: displayControl ? this._renderTargetControl(displayControl) : "" });
+    const actionsMarkup = renderActions({ mode: modes.actions, hasStatus: hasWaterStatus, standalone: !waterVisible });
+    const waterStatusMarkup = hasWaterStatus ? renderWaterStatus({ status: waterQuality.status, mode: modes.water_status, actions: waterVisible ? actionsMarkup : "" }) : "";
+    const temperatureMarkup = renderTemperature({ mode: modes.temperature, reading: temperature, configured: hasTemperatureSource, targetControl: displayControl ? this._renderTargetControl(displayControl) : "" });
     const heroMarkup = waterStatusMarkup || temperatureMarkup || (!waterVisible ? actionsMarkup : "")
       ? `<div class="hero-grid${waterStatusMarkup && temperatureMarkup ? "" : " hero-grid--focused"}">${(waterStatusMarkup || temperatureMarkup) ? WATER_LINE_DECORATION : ""}${waterStatusMarkup}${temperatureMarkup}${!waterVisible ? actionsMarkup : ""}</div>`
       : "";
@@ -212,10 +211,10 @@ export class AquardCard extends HTMLElement {
     this.shadowRoot.innerHTML = `
       <style>${styles}</style>
       <ha-card>
-        ${renderDetails({ mode: modes.details, name: this._config.name, availabilityClass: temperature.availabilityClass })}
+          ${renderDetails({ mode: modes.details, name: this._config.name, availabilityClass: temperature.availabilityClass, showAvailability: hasTemperatureSource })}
         <main>
           ${heroMarkup}
-          ${renderMeasurements({ mode: modes.measurements, hasMeasurements })}
+          ${renderMeasurements({ mode: modes.measurements, hasMeasurements: hasMeasurements && shouldShowSensorInformation(this._config) })}
           ${renderControls({ mode: modes.controls, hasControls })}
         </main>
       </ha-card>
@@ -239,13 +238,12 @@ export class AquardCard extends HTMLElement {
     }
 
     const equipmentGrid = this.shadowRoot.querySelector(".equipment-grid");
-    if (equipmentGrid) for (const control of controls) {
-      if (modes.controls === "full" || control[3]) equipmentGrid.append(this._createEquipmentTile(...control));
-    }
+    if (equipmentGrid) for (const control of controls) if (control[3]) equipmentGrid.append(this._createEquipmentTile(...control));
+    if (equipmentGrid) equipmentGrid.dataset.count = String(equipmentGrid.childElementCount);
 
     const metricGrid = this.shadowRoot.querySelector(".metric-grid");
     if (metricGrid) for (const [key, label, icon] of METRICS) {
-      if (modes.measurements === "compact" && !entities[key]) continue;
+      if (!entities[key]) continue;
       metricGrid.append(this._createMetric(
         label,
         icon,
@@ -253,6 +251,7 @@ export class AquardCard extends HTMLElement {
         waterQuality.measurements[key],
       ));
     }
+    if (metricGrid) metricGrid.dataset.count = String(metricGrid.childElementCount);
   }
 
   _createEquipmentTile(label, reading, icon, entityId, allowSelect, allowClimate) {

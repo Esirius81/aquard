@@ -44,10 +44,12 @@ export function evaluateSpaWaterQuality(values, profile = SPA_WATER_QUALITY_PROF
 
 export function evaluateWaterQuality(values, profile) {
   const measurements = Object.fromEntries(Object.entries(profile.measurements).map(([key, definition]) => [key, evaluateMeasurement(values[key], definition)]));
-  if (profile.essential.some((key) => !measurements[key]?.available)) return result("unknown", null, null, "sensor_data_unavailable", measurements);
+  const configuredKeys = Object.keys(profile.measurements).filter((key) => Object.hasOwn(values, key));
+  if (configuredKeys.some((key) => !measurements[key]?.available)) return result("unknown", null, null, "sensor_data_unavailable", measurements);
 
-  const weightedKeys = Object.keys(measurements).filter((key) => measurements[key].available && profile.measurements[key].weight > 0);
+  const weightedKeys = configuredKeys.filter((key) => measurements[key].available && profile.measurements[key].weight > 0);
   const totalWeight = weightedKeys.reduce((sum, key) => sum + profile.measurements[key].weight, 0);
+  if (!totalWeight) return result("unknown", null, null, "sensor_data_unavailable", measurements);
   const score = Math.round(weightedKeys.reduce((sum, key) => sum + measurements[key].score * profile.measurements[key].weight, 0) / totalWeight);
   const primaryIssue = findPrimaryIssue(measurements, profile.priority);
   const severities = weightedKeys.map((key) => measurements[key].severity);

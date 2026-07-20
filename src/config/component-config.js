@@ -20,3 +20,7 @@ export function getComponentMode(config, componentId) {
 export function isComponentVisible(config, componentId) {
   return getComponentMode(config, componentId) !== "hidden";
 }
+
+export function shouldShowSensorInformation(config) {
+  return config?.show_sensor_information !== false;
+}

@@ -49,6 +49,22 @@ function readSwitch(hass, entityId) {
   return { ...result, value: result.value === "on" ? "On" : "Off" };
 }
 
+function readCurrentTemperature(hass, entities = {}) {
+  if (entities.water_temperature) return readEntity(hass, entities.water_temperature, { numeric: true });
+  if (!entities.climate) return readEntity(hass, undefined, { numeric: true });
+  const stateObj = hass?.states?.[entities.climate];
+  if (!stateObj || UNAVAILABLE_STATES.has(stateObj.state)) return unavailableResult("Unavailable", "unavailable");
+  const value = Number(stateObj.attributes?.current_temperature);
+  if (!Number.isFinite(value)) return unavailableResult("Unavailable", "unavailable");
+  return {
+    value: new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(value),
+    unit: stateObj.attributes?.temperature_unit ?? "",
+    availability: "Available",
+    availabilityClass: "available",
+    stateObj: { ...stateObj, state: String(value) },
+  };
+}
+
 function readClimate(hass, entityId) {
   const result = readEntity(hass, entityId);
   if (result.availabilityClass !== "available") return result;
@@ -171,6 +187,10 @@ function isComponentVisible(config, componentId) {
   return getComponentMode(config, componentId) !== "hidden";
 }
 
+function shouldShowSensorInformation(config) {
+  return config?.show_sensor_information !== false;
+}
+
 
 const VALID_MODES = new Set(COMPONENT_MODES);
 
@@ -269,10 +289,12 @@ function evaluateSpaWaterQuality(values, profile = SPA_WATER_QUALITY_PROFILE) { 
 
 function evaluateWaterQuality(values, profile) {
   const measurements = Object.fromEntries(Object.entries(profile.measurements).map(([key, definition]) => [key, evaluateMeasurement(values[key], definition)]));
-  if (profile.essential.some((key) => !measurements[key]?.available)) return result("unknown", null, null, "sensor_data_unavailable", measurements);
+  const configuredKeys = Object.keys(profile.measurements).filter((key) => Object.hasOwn(values, key));
+  if (configuredKeys.some((key) => !measurements[key]?.available)) return result("unknown", null, null, "sensor_data_unavailable", measurements);
 
-  const weightedKeys = Object.keys(measurements).filter((key) => measurements[key].available && profile.measurements[key].weight > 0);
+  const weightedKeys = configuredKeys.filter((key) => measurements[key].available && profile.measurements[key].weight > 0);
   const totalWeight = weightedKeys.reduce((sum, key) => sum + profile.measurements[key].weight, 0);
+  if (!totalWeight) return result("unknown", null, null, "sensor_data_unavailable", measurements);
   const score = Math.round(weightedKeys.reduce((sum, key) => sum + measurements[key].score * profile.measurements[key].weight, 0) / totalWeight);
   const primaryIssue = findPrimaryIssue(measurements, profile.priority);
   const severities = weightedKeys.map((key) => measurements[key].severity);
@@ -443,8 +465,8 @@ function renderWaterStatus({ status, mode, actions = "" }) {
 }
 
 
-function renderTemperature({ mode, reading, targetControl = "" }) {
-  if (mode === "hidden" || (mode === "compact" && !reading.stateObj && !targetControl)) return "";
+function renderTemperature({ mode, reading, targetControl = "", configured = true }) {
+  if (mode === "hidden" || !configured) return "";
   if (mode === "compact") {
     return `<section class="aquard-component aquard-component--compact temperature-panel temperature-panel--compact ${reading.availabilityClass}" data-component="temperature">
       <div class="temperature-copy"><div class="section-label temperature-label"></div><div class="temperature-reading"><span class="temperature-value"><span class="temperature-whole"></span><span class="temperature-decimal"></span></span><span class="temperature-unit"></span></div>${targetControl}</div>
@@ -456,8 +478,8 @@ function renderTemperature({ mode, reading, targetControl = "" }) {
   </section>`;
 }
 
-function renderActions({ mode, hasAction, standalone = false }) {
-  if (mode === "hidden" || (mode === "compact" && !hasAction)) return "";
+function renderActions({ mode, hasStatus, standalone = false }) {
+  if (mode === "hidden" || !hasStatus) return "";
   if (mode === "compact") {
     return `<aside class="aquard-component aquard-component--compact status-summary status-summary--compact${standalone ? " actions-standalone" : ""}" data-component="actions"><div class="status-action"></div></aside>`;
   }
@@ -465,20 +487,20 @@ function renderActions({ mode, hasAction, standalone = false }) {
 }
 
 function renderMeasurements({ mode, hasMeasurements }) {
-  if (mode === "hidden" || (mode === "compact" && !hasMeasurements)) return "";
+  if (mode === "hidden" || !hasMeasurements) return "";
   return `<section class="aquard-component aquard-component--${mode} measurement-section${mode === "compact" ? " measurement-section--compact" : ""}" data-component="measurements" aria-label="Water quality measurements"><div class="metric-grid"></div></section>`;
 }
 
 function renderControls({ mode, hasControls }) {
-  if (mode === "hidden" || (mode === "compact" && !hasControls)) return "";
+  if (mode === "hidden" || !hasControls) return "";
   return `<section class="aquard-component aquard-component--${mode} equipment-section${mode === "compact" ? " equipment-section--compact" : ""}" data-component="controls" aria-label="Equipment status"><div class="equipment-grid"></div></section>`;
 }
 
-function renderDetails({ mode, name, availabilityClass }) {
+function renderDetails({ mode, name, availabilityClass, showAvailability = true }) {
   if (mode === "hidden") return "";
   return `<header class="aquard-component aquard-component--${mode} aquard-header${mode === "compact" ? " aquard-header--compact" : ""}" data-component="details">
     <div class="brand-lockup"><div><div class="brand-name"></div><div class="brand-context"></div></div><span class="brand-mark" aria-hidden="true"><ha-icon icon="mdi:waves"></ha-icon></span></div>
-    ${mode === "full" ? `<div class="header-availability ${availabilityClass}"><span class="status-dot"></span><span class="header-availability-text"></span></div>` : ""}
+    ${mode === "full" && showAvailability ? `<div class="header-availability ${availabilityClass}"><span class="status-dot"></span><span class="header-availability-text"></span></div>` : ""}
   </header>`;
 }
 
@@ -514,6 +536,7 @@ const styles = `
   .equipment-icon{display:grid;width:clamp(48px,5.8cqw,62px);aspect-ratio:1;place-items:center;border:2px solid var(--aq-blue);border-radius:50%;color:var(--aq-blue);box-shadow:0 0 18px rgba(25,199,242,.13),inset 0 0 14px rgba(25,199,242,.08)}.equipment-icon ha-icon{width:27px;height:27px;--mdc-icon-size:27px}.equipment-copy{min-width:0}.equipment-name{color:#dcebf1;font-size:clamp(.92rem,1.7cqw,1.08rem);font-weight:600}.equipment-value{margin-top:4px;overflow-wrap:anywhere;color:#65daf3;font-size:.86rem}.available .equipment-value{color:var(--aq-green)}.pending .status-dot{border:2px solid rgba(101,218,243,.28);border-top-color:var(--aq-blue);background:transparent;box-shadow:none;animation:aq-spin .7s linear infinite}@keyframes aq-spin{to{transform:rotate(360deg)}}
   .measurement-section{margin-top:var(--aq-gap);overflow:hidden;border:1px solid var(--aq-border);border-radius:var(--aq-lg);background:rgba(5,24,36,.72)}.metric-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;background:rgba(62,176,207,.16)}.metric-tile{min-width:0;padding:clamp(17px,2.3cqw,24px);overflow:hidden;background:linear-gradient(145deg,rgba(8,36,51,.94),rgba(6,25,38,.88));--range-intensity:0;--range-opacity:.42;--current-position:50%}.metric-heading,.metric-label,.metric-reading-row,.metric-footer{display:flex;align-items:center;min-width:0}.metric-label{gap:9px}.metric-icon{width:23px;height:23px;flex:0 0 auto;color:var(--aq-blue);--mdc-icon-size:23px}.metric-name{color:#bcd4df;font-size:.9rem;font-weight:620;letter-spacing:.02em}.metric-reading-row{justify-content:space-between;gap:10px;margin-top:14px}.metric-reading{min-width:0;overflow-wrap:anywhere;font-size:clamp(1.85rem,3.8cqw,2.7rem);font-weight:590;letter-spacing:-.035em}.metric-quality-mark{display:grid;width:31px;height:31px;flex:0 0 auto;place-items:center;border:2px solid var(--aq-green);border-radius:50%;color:var(--aq-green);box-shadow:0 0 12px rgba(67,230,108,.14)}.metric-quality-mark ha-icon{width:18px;height:18px;--mdc-icon-size:18px}.quality-monitor .metric-quality-mark{border-color:var(--aq-yellow);color:var(--aq-yellow)}.quality-action_needed .metric-quality-mark{border-color:var(--aq-orange);color:var(--aq-orange)}.quality-alert .metric-quality-mark{border-color:var(--aq-red);color:var(--aq-red)}.unavailable .metric-quality-mark,.not-configured .metric-quality-mark{border-color:var(--aq-muted);color:var(--aq-muted);opacity:.55}.metric-meter{position:relative;height:8px;margin-top:16px;overflow:visible;border-radius:999px;color:var(--aq-muted);background:rgba(37,68,82,.5);isolation:isolate}.metric-meter::before{position:absolute;inset:0;z-index:0;border-radius:inherit;background:currentColor;opacity:var(--range-opacity,.4);content:""}.range-ideal .metric-meter{color:var(--aq-green);--range-opacity:.82}.range-low .metric-meter{color:var(--aq-blue)}.range-high .metric-meter{color:var(--aq-red)}.range-neutral .metric-meter{color:var(--aq-muted);--range-opacity:.28}.metric-value-marker{position:absolute;top:50%;left:clamp(4px,var(--current-position),calc(100% - 4px));z-index:2;width:2px;height:16px;border-radius:2px;background:#f4fbff;box-shadow:0 0 5px rgba(255,255,255,.8);transform:translate(-50%,-50%);transition:left var(--aq-motion)}.range-neutral .metric-value-marker{display:none}.metric-footer{justify-content:space-between;gap:8px;margin-top:10px}.metric-quality{min-width:0;color:var(--aq-muted);font-size:.7rem;overflow-wrap:anywhere}.metric-state{min-width:0;flex:0 0 auto;gap:5px}.quality-excellent .metric-quality{color:var(--aq-green)}.quality-monitor .metric-quality{color:var(--aq-yellow)}.quality-action_needed .metric-quality{color:var(--aq-orange)}.quality-alert .metric-quality{color:var(--aq-red)}
   .hero-grid--focused{grid-template-columns:minmax(0,1fr)}.hero-grid--focused .hero-panel{max-width:none}.status-panel--compact,.temperature-panel--compact{position:relative;z-index:1;display:flex;min-width:0;min-height:112px;align-items:center;gap:16px;padding:16px 18px;overflow:hidden;border:1px solid var(--aq-border);border-radius:var(--aq-lg);background:linear-gradient(145deg,rgba(8,40,57,.94),rgba(5,24,37,.86))}.status-panel--compact{padding-right:clamp(140px,42%,220px)}.status-panel--compact .status-orb{width:72px}.status-panel--compact .status-headline{height:auto;min-height:0;max-height:none;margin:0;font-size:clamp(1.35rem,3.4cqw,2.1rem)}.status-score{margin-top:6px;color:var(--aq-muted);font-size:.78rem}.status-summary--compact{height:54px}.actions-standalone{position:relative;width:100%;height:auto;min-height:64px}.temperature-panel--compact{justify-content:space-between}.temperature-panel--compact .temperature-reading{margin:7px 0 0;font-size:clamp(2.4rem,6cqw,4rem)}.temperature-panel--compact .target-control{margin-top:8px}.temperature-panel--compact .target-label{display:none}.measurement-section--compact .metric-grid{grid-template-columns:repeat(auto-fit,minmax(120px,1fr))}.measurement-section--compact .metric-tile{padding:14px}.measurement-section--compact .metric-reading-row{margin-top:8px}.measurement-section--compact .metric-reading{font-size:1.55rem}.measurement-section--compact .metric-meter,.measurement-section--compact .metric-footer{display:none}.equipment-section--compact .equipment-grid{grid-template-columns:repeat(auto-fit,minmax(112px,1fr));gap:8px}.equipment-section--compact .equipment-tile{min-height:48px;gap:9px;padding:8px 10px}.equipment-section--compact .equipment-icon{width:40px}.equipment-section--compact .equipment-icon ha-icon{width:22px;height:22px;--mdc-icon-size:22px}.equipment-section--compact .equipment-value{margin-top:1px;font-size:.75rem}.aquard-header--compact{margin-bottom:12px}.aquard-header--compact .brand-name{font-size:1.35rem}
+  .equipment-grid{grid-template-columns:repeat(auto-fit,minmax(min(180px,100%),1fr))}.metric-grid{grid-template-columns:repeat(auto-fit,minmax(min(180px,100%),1fr))}.equipment-grid[data-count="1"],.metric-grid[data-count="1"]{grid-template-columns:minmax(0,min(100%,360px))}
   @media(prefers-reduced-motion:reduce){.equipment-tile,.target-button,.temperature-gauge-progress,.temperature-gauge-marker{transition-duration:.01ms}.pending .status-dot{animation-duration:1.4s}}
   @container(max-width:760px){.hero-grid{grid-template-columns:minmax(0,1fr)}.hero-panel{min-height:205px}.metric-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
   @container(max-width:560px){ha-card{border-radius:22px}.header-availability{display:none}.hero-panel.status-panel,.hero-panel.temperature-panel{min-height:195px;padding:20px}.hero-panel .status-orb{width:92px}.temperature-gauge{width:116px}.equipment-section:not(.equipment-section--compact) .equipment-grid{grid-template-columns:minmax(0,1fr)}}
@@ -634,17 +657,15 @@ class AquardCardEditor extends HTMLElement {
   _render() {
     if (!this.shadowRoot || !this._config) return;
     const profile = this._config.profile ?? "spa";
-    const preset = deriveLayoutPreset(this._config);
     const groups = [...new Set(DEVICE_FIELDS.map((field) => field.group))];
     this.shadowRoot.innerHTML = `
       <style>
-        :host{display:block;color:var(--primary-text-color)}*{box-sizing:border-box}.intro{margin:0 0 16px;color:var(--secondary-text-color);line-height:1.45}.notice{display:flex;gap:10px;margin:0 0 16px;padding:12px 14px;border-radius:10px;background:var(--secondary-background-color);line-height:1.4}.notice ha-icon{flex:0 0 auto;color:var(--primary-color)}details{border-top:1px solid var(--divider-color)}details:first-of-type{border-top:0}summary{padding:18px 2px;font-size:16px;font-weight:500;cursor:pointer;list-style-position:inside}.section-body{padding:0 2px 18px}.section-copy,.field-copy{margin:-4px 0 16px;color:var(--secondary-text-color);font-size:13px;line-height:1.4}.group{margin-top:20px}.group:first-child{margin-top:0}.group-title{margin:0 0 12px;font-size:14px;font-weight:600}ha-select,ha-entity-picker,ha-textfield{display:block;width:100%;margin-bottom:16px}.component{display:grid;grid-template-columns:minmax(0,1fr) minmax(130px,180px);align-items:center;gap:16px;margin-bottom:12px}.component ha-select{margin:0}.component-name{font-weight:500}.component-description{margin-top:3px;color:var(--secondary-text-color);font-size:12px}.error{color:var(--error-color)}@media(max-width:430px){.component{grid-template-columns:1fr;gap:8px}.component ha-select{margin-bottom:8px}}
+        :host{display:block;color:var(--primary-text-color)}*{box-sizing:border-box}.notice{display:flex;gap:10px;margin:0 0 16px;padding:12px 14px;border-radius:10px;background:var(--secondary-background-color);line-height:1.4}.notice ha-icon{flex:0 0 auto;color:var(--primary-color)}details{border-top:1px solid var(--divider-color)}details:first-of-type{border-top:0}summary{padding:18px 2px;font-size:16px;font-weight:500;cursor:pointer;list-style-position:inside}.section-body{padding:0 2px 18px}.section-copy,.field-copy{margin:-4px 0 16px;color:var(--secondary-text-color);font-size:13px;line-height:1.4}.group{margin-top:20px}.group:first-child{margin-top:0}.group-title{margin:0 0 12px;font-size:14px;font-weight:600}ha-select,ha-entity-picker,ha-textfield{display:block;width:100%;margin-bottom:16px}.switch-row{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}.switch-label{font-weight:500}.switch-description{margin:4px 0 0}.sensor-information-toggle{flex:0 0 auto}.error{color:var(--error-color)}
       </style>
       ${!hasMeaningfulEntities(this._config) ? `<div class="notice" role="status"><ha-icon icon="mdi:information-outline"></ha-icon><span>Select one or more Spa entities below. You can save now and finish setup later.</span></div>` : ""}
       <details open><summary>Profile</summary><div class="section-body"><p class="section-copy">Choose the water profile this card represents.</p><ha-select class="profile-select" label="Profile">${selectMarkup(AQUARD_PROFILES)}</ha-select>${AQUARD_PROFILES.some((item) => item.value === profile) ? "" : `<p class="field-copy error" role="alert">The configured profile is not supported. Select Spa to continue.</p>`}</div></details>
       <details open><summary>Devices</summary><div class="section-body"><p class="section-copy">All entities are optional. Aquard keeps missing or unavailable entity IDs so they can reconnect later.</p>${groups.map((group) => `<section class="group"><h4 class="group-title">${group}</h4><div data-device-group="${group}"></div></section>`).join("")}</div></details>
-      <details open><summary>Appearance</summary><div class="section-body"><p class="section-copy">Layout presets update the display mode of all components.</p><ha-select class="preset-select" label="Layout preset"><mwc-list-item value="dashboard">Dashboard</mwc-list-item><mwc-list-item value="compact">Compact</mwc-list-item><mwc-list-item value="custom">Custom</mwc-list-item></ha-select></div></details>
-      <details ${preset === "custom" ? "open" : ""}><summary>Components</summary><div class="section-body"><p class="section-copy">Choose how much space each part uses. Changing a mode makes the layout Custom.</p><div class="components"></div></div></details>
+      <details open><summary>Options</summary><div class="section-body"><div class="switch-row"><div><div class="switch-label">Show sensor information</div><div class="field-copy switch-description" id="sensor-information-description">Display the pH, ORP, EC and TDS sensor cards when configured.</div></div><ha-switch class="sensor-information-toggle" aria-label="Show sensor information" aria-describedby="sensor-information-description"></ha-switch></div></div></details>
       <details><summary>Advanced</summary><div class="section-body"><p class="section-copy">Optional card settings.</p><ha-textfield class="name-field" label="Card name"></ha-textfield></div></details>`;
 
     const profileSelect = this.shadowRoot.querySelector(".profile-select");
@@ -663,20 +684,9 @@ class AquardCardEditor extends HTMLElement {
       this.shadowRoot.querySelector(`[data-device-group="${field.group}"]`).append(picker);
     }
 
-    const presetSelect = this.shadowRoot.querySelector(".preset-select");
-    presetSelect.value = preset;
-    presetSelect.addEventListener("selected", (event) => this._applyPreset(event.target.value));
-
-    const components = this.shadowRoot.querySelector(".components");
-    for (const component of COMPONENT_OPTIONS) {
-      const row = document.createElement("div");
-      row.className = "component";
-      row.innerHTML = `<div><div class="component-name">${component.label}</div><div class="component-description">${component.description}</div></div><ha-select label="${component.label} mode">${selectMarkup(MODE_OPTIONS)}</ha-select>`;
-      const select = row.querySelector("ha-select");
-      select.value = this._config.components?.[component.key] ?? "full";
-      select.addEventListener("selected", (event) => this._change(["components", component.key], event.target.value));
-      components.append(row);
-    }
+    const sensorInformationToggle = this.shadowRoot.querySelector(".sensor-information-toggle");
+    sensorInformationToggle.checked = this._config.show_sensor_information !== false;
+    sensorInformationToggle.addEventListener("change", (event) => this._change(["show_sensor_information"], event.target.checked));
 
     const name = this.shadowRoot.querySelector(".name-field");
     name.value = this._config.name ?? "";
@@ -686,13 +696,6 @@ class AquardCardEditor extends HTMLElement {
   _syncHass() {
     if (!this.shadowRoot) return;
     for (const picker of this.shadowRoot.querySelectorAll("ha-entity-picker")) picker.hass = this._hass;
-  }
-
-  _applyPreset(preset) {
-    const config = applyLayoutPreset(this._config, preset);
-    if (config === this._config) return;
-    this._config = config;
-    dispatchConfigChanged(this, config);
   }
 
   _change(path, value) {
@@ -870,14 +873,13 @@ export class AquardCard extends HTMLElement {
     }
 
     const entities = this._config.entities;
-    const temperature = readEntity(this._hass, entities.water_temperature, { numeric: true });
+    const hasTemperatureSource = Boolean(entities.water_temperature || entities.climate);
+    const temperature = readCurrentTemperature(this._hass, entities);
     const power = readSwitch(this._hass, entities.power);
-    const waterQuality = evaluateSpaWaterQuality({
-      ph: this._hass?.states?.[entities.ph]?.state,
-      orp: this._hass?.states?.[entities.orp]?.state,
-      ec: this._hass?.states?.[entities.ec]?.state,
-      tds: this._hass?.states?.[entities.tds]?.state,
-    });
+    const configuredMeasurements = Object.fromEntries(METRICS
+      .filter(([key]) => Boolean(entities[key]))
+      .map(([key]) => [key, this._hass?.states?.[entities[key]]?.state]));
+    const waterQuality = evaluateSpaWaterQuality(configuredMeasurements);
     const controls = [
       [UI_TEXT.power, power, "power", entities.power, false, false],
       [UI_TEXT.filter, readSwitch(this._hass, entities.filter), "filter", entities.filter, false, false],
@@ -892,11 +894,11 @@ export class AquardCard extends HTMLElement {
     const modes = Object.fromEntries(["water_status", "temperature", "actions", "measurements", "controls", "details"].map((id) => [id, getComponentMode(this._config, id)]));
     const waterVisible = isComponentVisible(this._config, "water_status");
     const hasMeasurements = METRICS.some(([key]) => Boolean(entities[key]));
+    const hasWaterStatus = hasMeasurements && waterQuality.score !== null;
     const hasControls = controls.some((control) => Boolean(control[3]));
-    const hasAction = waterQuality.status !== "excellent" && waterQuality.status !== "unknown";
-    const actionsMarkup = renderActions({ mode: modes.actions, hasAction, standalone: !waterVisible });
-    const waterStatusMarkup = renderWaterStatus({ status: waterQuality.status, mode: modes.water_status, actions: waterVisible ? actionsMarkup : "" });
-    const temperatureMarkup = renderTemperature({ mode: modes.temperature, reading: temperature, targetControl: displayControl ? this._renderTargetControl(displayControl) : "" });
+    const actionsMarkup = renderActions({ mode: modes.actions, hasStatus: hasWaterStatus, standalone: !waterVisible });
+    const waterStatusMarkup = hasWaterStatus ? renderWaterStatus({ status: waterQuality.status, mode: modes.water_status, actions: waterVisible ? actionsMarkup : "" }) : "";
+    const temperatureMarkup = renderTemperature({ mode: modes.temperature, reading: temperature, configured: hasTemperatureSource, targetControl: displayControl ? this._renderTargetControl(displayControl) : "" });
     const heroMarkup = waterStatusMarkup || temperatureMarkup || (!waterVisible ? actionsMarkup : "")
       ? `<div class="hero-grid${waterStatusMarkup && temperatureMarkup ? "" : " hero-grid--focused"}">${(waterStatusMarkup || temperatureMarkup) ? WATER_LINE_DECORATION : ""}${waterStatusMarkup}${temperatureMarkup}${!waterVisible ? actionsMarkup : ""}</div>`
       : "";
@@ -904,10 +906,10 @@ export class AquardCard extends HTMLElement {
     this.shadowRoot.innerHTML = `
       <style>${styles}</style>
       <ha-card>
-        ${renderDetails({ mode: modes.details, name: this._config.name, availabilityClass: temperature.availabilityClass })}
+          ${renderDetails({ mode: modes.details, name: this._config.name, availabilityClass: temperature.availabilityClass, showAvailability: hasTemperatureSource })}
         <main>
           ${heroMarkup}
-          ${renderMeasurements({ mode: modes.measurements, hasMeasurements })}
+          ${renderMeasurements({ mode: modes.measurements, hasMeasurements: hasMeasurements && shouldShowSensorInformation(this._config) })}
           ${renderControls({ mode: modes.controls, hasControls })}
         </main>
       </ha-card>
@@ -931,13 +933,12 @@ export class AquardCard extends HTMLElement {
     }
 
     const equipmentGrid = this.shadowRoot.querySelector(".equipment-grid");
-    if (equipmentGrid) for (const control of controls) {
-      if (modes.controls === "full" || control[3]) equipmentGrid.append(this._createEquipmentTile(...control));
-    }
+    if (equipmentGrid) for (const control of controls) if (control[3]) equipmentGrid.append(this._createEquipmentTile(...control));
+    if (equipmentGrid) equipmentGrid.dataset.count = String(equipmentGrid.childElementCount);
 
     const metricGrid = this.shadowRoot.querySelector(".metric-grid");
     if (metricGrid) for (const [key, label, icon] of METRICS) {
-      if (modes.measurements === "compact" && !entities[key]) continue;
+      if (!entities[key]) continue;
       metricGrid.append(this._createMetric(
         label,
         icon,
@@ -945,6 +946,7 @@ export class AquardCard extends HTMLElement {
         waterQuality.measurements[key],
       ));
     }
+    if (metricGrid) metricGrid.dataset.count = String(metricGrid.childElementCount);
   }
 
   _createEquipmentTile(label, reading, icon, entityId, allowSelect, allowClimate) {
