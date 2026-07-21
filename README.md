@@ -81,6 +81,8 @@ Optional controls:
 - Heater
 - Bubbles
 
+Control changes are shown immediately and remain stable while Home Assistant confirms them. If confirmation does not arrive within nine seconds, Aquard quietly returns to the latest reported entity state and remains ready to retry.
+
 Aquard automatically detects the supported entity type where possible.
 
 ---

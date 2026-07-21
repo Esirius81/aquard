@@ -15,6 +15,7 @@ import { renderStatusIndicator, STATUS_INDICATOR_GEOMETRY } from "../src/compone
 import { styles } from "../src/styles.js";
 import { dispatchConfigChanged, hasMeaningfulEntities, updateConfigProperty } from "../src/editor/editor-helpers.js";
 import { applyLayoutPreset, deriveLayoutPreset, LAYOUT_PRESETS } from "../src/editor/editor-presets.js";
+import { PendingStateStore, numericValuesEqual } from "../src/pending-state.js";
 
 globalThis.HTMLElement = class {};
 const registeredElements = new Map();
@@ -27,6 +28,10 @@ globalThis.document = { createElement: (name) => ({ localName: name }) };
 
 const { AquardCard } = await import("../src/aquard-card.js");
 const { AquardCardEditor } = await import("../src/editor/aquard-card-editor.js");
+const distributionSource = await readFile(new URL("../dist/aquard-card.js", import.meta.url), "utf8");
+assert.match(distributionSource, /class PendingStateStore/, "the distribution bundle must include the optimistic pending-state implementation");
+const { AquardCard: DistributionAquardCard } = await import("../dist/aquard-card.js?validation");
+assert.equal(typeof DistributionAquardCard.prototype.setConfig, "function", "the built Home Assistant card must expose setConfig");
 assert.equal(AquardCard.getConfigElement().localName, "aquard-card-editor");
 assert.deepEqual(AquardCard.getStubConfig(), { profile: "spa", entities: {}, components: LAYOUT_PRESETS.dashboard });
 assert.equal(typeof AquardCard.prototype.getGridOptions, "function");
@@ -185,8 +190,8 @@ assert.doesNotMatch(climate.targetValue, /Heat|Heating|Idle|Off/i);
 const targetControl = resolveTargetTemperature(hass, "climate.spa");
 assert.equal(targetControl.target, 38);
 assert.equal(targetControl.step, 0.5);
-assert.equal(getTargetTemperatureAdjustment(targetControl, 1).temperature, 39);
-assert.equal(getTargetTemperatureAdjustment(targetControl, -1).temperature, 37);
+assert.equal(getTargetTemperatureAdjustment(targetControl, 1).temperature, 38.5);
+assert.equal(getTargetTemperatureAdjustment(targetControl, -1).temperature, 37.5);
 assert.equal(resolveTargetTemperature(hass, undefined), undefined);
 assert.equal(resolveTargetTemperature(hass, "climate.unavailable"), undefined);
 assert.equal(resolveTargetTemperature(hass, "climate.no_target"), undefined);
@@ -200,26 +205,27 @@ assert.equal(getTargetTemperatureAdjustment({ ...targetControl, target: 30 }, -1
 assert.equal(getTargetTemperatureAdjustment({ ...targetControl, target: 40 }, 1), undefined);
 assert.deepEqual(formatTargetTemperature(36.5, "°C", 0.5), { value: new Intl.NumberFormat(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(36.5), unit: "°C" });
 const targetMarkupCard = Object.create(AquardCard.prototype);
-targetMarkupCard._pendingTarget = null;
+targetMarkupCard._pendingState = new PendingStateStore();
 const targetMarkup = targetMarkupCard._renderTargetControl(targetControl);
 assert.match(targetMarkup, /class="target-control"/);
 assert.match(targetMarkup, /Decrease target temperature/);
 assert.match(targetMarkup, /Increase target temperature/);
 assert.doesNotMatch(targetMarkup, /Heat|Heating|Idle|Off/i);
+assert.doesNotMatch(targetMarkup, /pending|spinner|loading|aria-busy/i);
 
 assert.deepEqual(getControlAction("switch.power", hass.states["switch.power"]), {
-  domain: "switch", service: "toggle", data: { entity_id: "switch.power" },
+  domain: "switch", service: "toggle", data: { entity_id: "switch.power" }, requestedValue: "off",
 });
 assert.deepEqual(getControlAction("select.bubbles", hass.states["select.bubbles"], true), {
-  domain: "select", service: "select_next", data: { entity_id: "select.bubbles", cycle: true },
+  domain: "select", service: "select_next", data: { entity_id: "select.bubbles", cycle: true }, requestedValue: "Off",
 });
 assert.equal(getControlAction("select.bubbles", hass.states["select.bubbles"], false), undefined);
 assert.equal(getControlAction("sensor.ph", hass.states["sensor.ph"]), undefined);
 assert.deepEqual(getControlAction("climate.spa", hass.states["climate.spa"], false, true), {
-  domain: "climate", service: "set_hvac_mode", data: { entity_id: "climate.spa", hvac_mode: "off" },
+  domain: "climate", service: "set_hvac_mode", data: { entity_id: "climate.spa", hvac_mode: "off" }, requestedValue: "off",
 });
 assert.deepEqual(getControlAction("climate.spa_off", hass.states["climate.spa_off"], false, true), {
-  domain: "climate", service: "set_hvac_mode", data: { entity_id: "climate.spa_off", hvac_mode: "heat" },
+  domain: "climate", service: "set_hvac_mode", data: { entity_id: "climate.spa_off", hvac_mode: "heat" }, requestedValue: "heat",
 });
 assert.equal(getControlAction("climate.spa", hass.states["climate.spa"], false, false), undefined);
 assert.equal(isControlActive(hass.states["climate.spa"]), true);
@@ -300,41 +306,125 @@ for (const status of ["excellent", "monitor", "action_needed", "alert", "unknown
 assert.match(styles, /\.hero-panel\{[^}]*min-height:clamp\(190px,22cqw,225px\)/);
 assert.match(styles, /\.status-orb\{[^}]*width:clamp\(120px,16cqw,165px\)/);
 
+const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+const quietStore = (timeoutMs = 9000) => new PendingStateStore({ timeoutMs, onChange: () => {} });
+
+const pendingStore = quietStore(20);
+const powerRequest = pendingStore.set("switch.power", "on");
+assert.equal(pendingStore.resolve("switch.power", "off"), "on", "Power must stay visually On while Home Assistant still reports Off");
+assert.equal(pendingStore.reconcile("switch.power", "off"), false);
+assert.equal(pendingStore.get("switch.power"), powerRequest);
+assert.equal(pendingStore.reconcile("switch.power", "on"), true);
+assert.equal(pendingStore.get("switch.power").confirmed, true, "confirmed Power must retain a quiet race guard");
+assert.equal(pendingStore.resolve("switch.power", "on"), "on", "confirmed Power must render without a visible jump");
+assert.equal(pendingStore.resolve("switch.power", "off"), "on", "a stale update after confirmation must not make Power jump back");
+pendingStore.clear("switch.power");
+pendingStore.set("switch.power", "on");
+await delay(30);
+assert.equal(pendingStore.get("switch.power"), undefined, "unconfirmed Power must expire");
+assert.equal(pendingStore.resolve("switch.power", "off"), "off", "actual Power must render after timeout");
+
+for (const [entityId, requested] of [["switch.filter", "on"], ["climate.heater", "heat"], ["select.bubbles", "High"]]) {
+  const store = quietStore();
+  store.set(entityId, requested);
+  assert.equal(store.resolve(entityId, "off"), requested, `${entityId} must use optimistic pending state`);
+  store.destroy();
+}
+
+const replacedStore = quietStore();
+replacedStore.set("target:climate.spa", 37, { equals: numericValuesEqual });
+replacedStore.set("target:climate.spa", 39, { equals: numericValuesEqual });
+assert.equal(replacedStore.reconcile("target:climate.spa", 37), false, "intermediate temperature must not confirm the latest target");
+assert.equal(replacedStore.resolve("target:climate.spa", 37), 39);
+assert.equal(replacedStore.reconcile("target:climate.spa", 39), true);
+assert.equal(replacedStore.get("target:climate.spa").confirmed, true);
+replacedStore.clear("target:climate.spa");
+assert.equal(numericValuesEqual(36.5000001, 36.5, 0.0005), true, "decimal targets must confirm within supported precision");
+
+const raceStore = quietStore();
+raceStore.set("target", 37, { timeoutMs: 10 });
+await delay(5);
+raceStore.set("target", 39, { timeoutMs: 40 });
+await delay(15);
+assert.equal(raceStore.get("target").value, 39, "an older timeout must not clear a newer request");
+raceStore.destroy();
+
 let serviceCalls = 0;
 let lastServiceCall;
 const pendingCard = Object.create(AquardCard.prototype);
 pendingCard._config = { entities: { climate: "climate.spa" } };
 pendingCard._hass = { ...hass, callService: async (domain, service, data) => { serviceCalls += 1; lastServiceCall = { domain, service, data }; } };
-pendingCard._pendingTarget = null;
+pendingCard._pendingState = quietStore();
 pendingCard._targetDebounceTimer = null;
-pendingCard._targetConfirmationTimer = null;
 pendingCard._render = () => {};
 pendingCard._adjustTargetTemperature(-1);
 pendingCard._adjustTargetTemperature(-1);
 pendingCard._adjustTargetTemperature(-1);
 assert.equal(serviceCalls, 0, "target changes must be debounced");
-assert.equal(pendingCard._pendingTarget.value, 35);
-pendingCard._reconcilePendingTarget();
-assert.equal(pendingCard._pendingTarget.value, 35, "stale Home Assistant state must not replace the optimistic value");
+assert.equal(pendingCard._pendingState.get("target:climate.spa").value, 36.5, "consecutive decreases must calculate from the pending target and respect target_temp_step");
+pendingCard._reconcilePendingState();
+assert.equal(pendingCard._pendingState.get("target:climate.spa").value, 36.5, "stale Home Assistant state must not replace the optimistic value");
 await pendingCard._flushTargetTemperature();
 assert.equal(serviceCalls, 1, "debounced target changes must produce one service call");
-assert.deepEqual(lastServiceCall, { domain: "climate", service: "set_temperature", data: { entity_id: "climate.spa", temperature: 35 } });
-pendingCard._hass = { ...pendingCard._hass, states: { ...hass.states, "climate.spa": { ...hass.states["climate.spa"], attributes: { ...hass.states["climate.spa"].attributes, temperature: 35 } } } };
-pendingCard._reconcilePendingTarget();
-assert.equal(pendingCard._pendingTarget, null);
+assert.deepEqual(lastServiceCall, { domain: "climate", service: "set_temperature", data: { entity_id: "climate.spa", temperature: 36.5 } });
+pendingCard._hass = { ...pendingCard._hass, states: { ...hass.states, "climate.spa": { ...hass.states["climate.spa"], attributes: { ...hass.states["climate.spa"].attributes, temperature: 36.5 } } } };
+pendingCard._reconcilePendingState();
+assert.equal(pendingCard._pendingState.get("target:climate.spa").confirmed, true);
+assert.equal(pendingCard._pendingState.resolve("target:climate.spa", 35), 36.5, "an older target update after confirmation must remain hidden");
+pendingCard._pendingState.destroy();
+
+const increasingCard = Object.create(AquardCard.prototype);
+increasingCard._config = { entities: { climate: "climate.spa" } };
+increasingCard._hass = { ...hass, callService: async () => {} };
+increasingCard._pendingState = quietStore();
+increasingCard._render = () => {};
+increasingCard._adjustTargetTemperature(1);
+increasingCard._adjustTargetTemperature(1);
+assert.equal(increasingCard._pendingState.get("target:climate.spa").value, 39, "consecutive increases must calculate from the pending target");
+increasingCard._pendingState.destroy();
+clearTimeout(increasingCard._targetDebounceTimer);
+
+const controlCalls = [];
+const controlCard = Object.create(AquardCard.prototype);
+controlCard._hass = { states: { "switch.power": { state: "off", attributes: {} } }, callService: async (...args) => { controlCalls.push(args); } };
+controlCard._pendingState = quietStore();
+controlCard._render = () => {};
+await controlCard._activateControl("switch.power", false, false);
+assert.equal(controlCard._pendingState.resolve("switch.power", "off"), "on");
+assert.equal(controlCalls.length, 1);
+const identicalAction = getControlAction("switch.power", { state: "off", attributes: {} });
+assert.equal(controlCard._pendingState.get("switch.power").value, identicalAction.requestedValue, "the pending destination is stored explicitly");
+controlCard._pendingState.destroy();
+
+const duplicateCard = Object.create(AquardCard.prototype);
+duplicateCard._hass = { states: { "select.mode": { state: "Only", attributes: { options: ["Only"] } } }, callService: async () => { throw new Error("an identical request must not be sent"); } };
+duplicateCard._pendingState = quietStore();
+duplicateCard._pendingState.set("select.mode", "Only");
+duplicateCard._render = () => {};
+await duplicateCard._activateControl("select.mode", true, false);
+duplicateCard._pendingState.destroy();
+
+const originalError = console.error;
+const failingControlCard = Object.create(AquardCard.prototype);
+failingControlCard._hass = { states: { "switch.power": { state: "off", attributes: {} } }, callService: async () => { throw new Error("test failure"); } };
+failingControlCard._pendingState = quietStore();
+failingControlCard._render = () => {};
+console.error = () => {};
+await failingControlCard._activateControl("switch.power", false, false);
+console.error = originalError;
+assert.equal(failingControlCard._pendingState.get("switch.power"), undefined, "a rejected control call must restore the confirmed state");
 
 const failingCard = Object.create(AquardCard.prototype);
 failingCard._config = { entities: { climate: "climate.spa" } };
 failingCard._hass = { ...hass, callService: async () => { throw new Error("test failure"); } };
-failingCard._pendingTarget = null;
+failingCard._pendingState = quietStore();
 failingCard._targetDebounceTimer = null;
-failingCard._targetConfirmationTimer = null;
 failingCard._render = () => {};
-const originalError = console.error;
 console.error = () => {};
 failingCard._adjustTargetTemperature(-1);
 await failingCard._flushTargetTemperature();
 console.error = originalError;
-assert.equal(failingCard._pendingTarget, null, "failed calls must restore the actual Home Assistant target");
+assert.equal(failingCard._pendingState.get("target:climate.spa"), undefined, "failed calls must restore the actual Home Assistant target");
+assert.doesNotMatch(styles, /aq-spin|\.pending \.status-dot|loading|spinner/i, "pending state must have no visual indicator");
 
 console.log("Configuration, state, grid, control, and water-quality validation passed");

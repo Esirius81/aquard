@@ -6,6 +6,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (path) => readFile(resolve(root, path), "utf8");
 
 const helpers = (await read("src/helpers.js")).replace(/^export /gm, "");
+const pendingState = (await read("src/pending-state.js")).replace(/^export /gm, "");
 const componentConfig = (await read("src/config/component-config.js")).replace(/^export /gm, "");
 const configNormalizer = (await read("src/config/config-normalizer.js")).replace(/^import .*;\r?\n/gm, "").replace(/^export /gm, "");
 const waterQuality = (await read("src/water-quality.js")).replace(/^export /gm, "");
@@ -24,7 +25,7 @@ const editorHelpers = (await read("src/editor/editor-helpers.js")).replace(/^exp
 const editorPresets = (await read("src/editor/editor-presets.js")).replace(/^import .*;\r?\n/gm, "").replace(/^export /gm, "");
 const editor = (await read("src/editor/aquard-card-editor.js")).replace(/^import .*;\r?\n/gm, "").replace(/^export /gm, "");
 const card = (await read("src/aquard-card.js")).replace(/^import .*;\r?\n/gm, "");
-const output = `// Aquard - generated file, do not edit directly.\n\n${helpers}\n${componentConfig}\n${configNormalizer}\n${waterQuality}\n${temperatureGauge}\n${statusIndicator}\n${targetTemperatureControl}\n${waterStatus}\n${temperature}\n${actions}\n${measurements}\n${controls}\n${details}\n${styles}\n${editorSchema}\n${editorHelpers}\n${editorPresets}\n${editor}\n${card}`;
+const output = `// Aquard - generated file, do not edit directly.\n\n${helpers}\n${pendingState}\n${componentConfig}\n${configNormalizer}\n${waterQuality}\n${temperatureGauge}\n${statusIndicator}\n${targetTemperatureControl}\n${waterStatus}\n${temperature}\n${actions}\n${measurements}\n${controls}\n${details}\n${styles}\n${editorSchema}\n${editorHelpers}\n${editorPresets}\n${editor}\n${card}`;
 const destination = resolve(root, "dist/aquard-card.js");
 
 await mkdir(dirname(destination), { recursive: true });

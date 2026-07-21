@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Optimistic control-state synchronization
+
+- Added reusable pending-state reconciliation for Power, Heater, Filter, Bubbles, and target temperature so delayed Home Assistant updates no longer make controls jump back.
+- Added quiet nine-second expiry, latest-request race protection, decimal target-step handling, and safe service-failure recovery without pending indicators or error messages.
+- Fixed the distribution build so the pending-state implementation is included and the card initializes correctly in Home Assistant.
+- Retained confirmed requests as quiet short-lived race guards so later out-of-order entity updates cannot make Power or other controls jump back.
+
 ### Sprint 3 — Premium visual configuration experience
 
 - Added duplicate-safe Home Assistant card-picker registration with preview support and a safe Spa stub configuration.

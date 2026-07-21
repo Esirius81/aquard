@@ -47,6 +47,10 @@ The format is inspired by Keep a Changelog and follows Semantic Versioning where
 
 ### Fixed
 
+- Kept a confirmed control request authoritative for the remainder of its reconciliation window, preventing a later out-of-order Power or equipment update from making the control jump back.
+- Included the optimistic pending-state implementation in the generated distribution bundle so Home Assistant can initialize the card correctly.
+- Kept Power, Heater, Filter, Bubbles, and target-temperature controls on their latest requested value while Home Assistant still reports an older state, with race-safe confirmation, quiet nine-second expiry, and service-failure recovery.
+- Calculated rapid target-temperature changes from the latest pending target while respecting decimal `target_temp_step`, minimum, and maximum values.
 - Prevented a card-rendering error when a configured climate entity does not expose a supported numeric target temperature.
 - Reduced the `ACTION NEEDED` hero title size so it remains on one line without shifting the layout.
 - Reserved a stable Water Status title area so one-line and two-line states do not shift the score or message.

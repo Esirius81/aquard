@@ -159,6 +159,8 @@ Aquard remains a single registered card composed from six canonical internal com
 
 Shared state derivation remains in the parent card and its helpers. Water-quality thresholds and scoring stay in `src/water-quality.js`; entity availability, service actions, target-temperature capability, and optimistic state coordination stay outside the component renderers.
 
+Interactive controls share the generic keyed pending-state store in `src/pending-state.js`. A requested boolean, string, or numeric value temporarily takes precedence over the confirmed Home Assistant value. Normal state updates confirm only the latest request; the confirmed value remains as a quiet race guard until its request-scoped nine-second timer expires, preventing a later out-of-order update from making the control jump back. No visual waiting or error state is added. Service invocation, entity parsing, reconciliation, and rendering remain separate.
+
 The existing status summary is assigned to `actions` while remaining visually nested in `water_status` in full mode. The existing brand and sensor-availability header is assigned to `details`, because the current card has no separate expanded-detail area.
 
 ---

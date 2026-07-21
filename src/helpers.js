@@ -108,10 +108,11 @@ export function resolveTargetTemperature(hass, entityId) {
 
 export function getTargetTemperatureAdjustment(control, direction) {
   if (!control || (direction !== -1 && direction !== 1)) return undefined;
-  const unclamped = control.target + direction;
+  const unclamped = control.target + (direction * control.step);
   const temperature = Math.min(control.max, Math.max(control.min, unclamped));
-  if (Math.abs(temperature - control.target) < Number.EPSILON) return undefined;
-  return { temperature, domain: "climate", service: "set_temperature", data: { entity_id: control.entityId, temperature } };
+  const roundedTemperature = roundToStep(temperature, control.step);
+  if (Math.abs(roundedTemperature - control.target) < Number.EPSILON) return undefined;
+  return { temperature: roundedTemperature, domain: "climate", service: "set_temperature", data: { entity_id: control.entityId, temperature: roundedTemperature } };
 }
 
 export function formatTargetTemperature(value, unit, step = 1) {
@@ -131,10 +132,14 @@ export function getControlAction(entityId, stateObj, allowSelect = false, allowC
   if (!entityId || !stateObj || UNAVAILABLE_STATES.has(stateObj.state)) return undefined;
   const domain = entityId.split(".", 1)[0];
   if (domain === "switch") {
-    return { domain: "switch", service: "toggle", data: { entity_id: entityId } };
+    return { domain: "switch", service: "toggle", data: { entity_id: entityId }, requestedValue: stateObj.state === "on" ? "off" : "on" };
   }
   if (allowSelect && domain === "select") {
-    return { domain: "select", service: "select_next", data: { entity_id: entityId, cycle: true } };
+    const options = Array.isArray(stateObj.attributes?.options) ? stateObj.attributes.options : [];
+    const currentIndex = options.indexOf(stateObj.state);
+    const requestedValue = options.length ? options[(currentIndex + 1 + options.length) % options.length] : undefined;
+    if (requestedValue === undefined) return undefined;
+    return { domain: "select", service: "select_next", data: { entity_id: entityId, cycle: true }, requestedValue };
   }
   if (allowClimate && domain === "climate") {
     const modes = Array.isArray(stateObj.attributes?.hvac_modes) ? stateObj.attributes.hvac_modes : [];
@@ -142,7 +147,7 @@ export function getControlAction(entityId, stateObj, allowSelect = false, allowC
     const hvacMode = currentMode === "off"
       ? modes.find((mode) => String(mode).toLowerCase() === "heat") ?? modes.find((mode) => String(mode).toLowerCase() !== "off")
       : modes.find((mode) => String(mode).toLowerCase() === "off");
-    if (hvacMode) return { domain: "climate", service: "set_hvac_mode", data: { entity_id: entityId, hvac_mode: hvacMode } };
+    if (hvacMode) return { domain: "climate", service: "set_hvac_mode", data: { entity_id: entityId, hvac_mode: hvacMode }, requestedValue: hvacMode };
   }
   return undefined;
 }

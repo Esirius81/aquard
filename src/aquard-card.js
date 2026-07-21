@@ -12,6 +12,7 @@ import { renderDetails } from "./components/details.js";
 import { styles } from "./styles.js";
 import "./editor/aquard-card-editor.js";
 import { hasMeaningfulEntities } from "./editor/editor-helpers.js";
+import { PendingStateStore, numericValuesEqual } from "./pending-state.js";
 
 const METRICS = [
   ["ph", "pH", "mdi:water-outline"],
@@ -77,7 +78,6 @@ const WATER_MESSAGE_TEXT = Object.freeze({
 });
 
 const TARGET_DEBOUNCE_MS = 400;
-const TARGET_CONFIRMATION_TIMEOUT_MS = 5000;
 
 const WATER_LINE_DECORATION = `
   <svg class="hero-water-line" viewBox="0 0 1200 260" preserveAspectRatio="none" aria-hidden="true">
@@ -129,10 +129,8 @@ export class AquardCard extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: "open" });
-    this._pendingControls = new Set();
-    this._pendingTarget = null;
+    this._pendingState = new PendingStateStore({ onChange: () => this._render() });
     this._targetDebounceTimer = null;
-    this._targetConfirmationTimer = null;
   }
 
   setConfig(config) {
@@ -142,7 +140,7 @@ export class AquardCard extends HTMLElement {
 
   set hass(hass) {
     this._hass = hass;
-    this._reconcilePendingTarget();
+    this._reconcilePendingState();
     this._render();
   }
 
@@ -192,9 +190,7 @@ export class AquardCard extends HTMLElement {
       [UI_TEXT.bubbles, readEntity(this._hass, entities.bubbles), "bubbles", entities.bubbles, true, false],
     ];
     const targetControl = resolveTargetTemperature(this._hass, entities.climate);
-    const displayedTarget = this._pendingTarget && this._pendingTarget.entityId === targetControl?.entityId
-      ? this._pendingTarget.value
-      : targetControl?.target;
+    const displayedTarget = targetControl ? this._pendingState.resolve(this._targetPendingKey(targetControl.entityId), targetControl.target) : undefined;
     const displayControl = targetControl ? { ...targetControl, target: displayedTarget } : undefined;
     const modes = Object.fromEntries(["water_status", "temperature", "actions", "measurements", "controls", "details"].map((id) => [id, getComponentMode(this._config, id)]));
     const waterVisible = isComponentVisible(this._config, "water_status");
@@ -255,50 +251,50 @@ export class AquardCard extends HTMLElement {
   }
 
   _createEquipmentTile(label, reading, icon, entityId, allowSelect, allowClimate) {
-    const stateObj = entityId ? this._hass?.states?.[entityId] : undefined;
-    const action = getControlAction(entityId, stateObj, allowSelect, allowClimate);
-    const active = isControlActive(stateObj);
-    const pending = this._pendingControls.has(entityId);
+    const confirmedStateObj = entityId ? this._hass?.states?.[entityId] : undefined;
+    const pending = this._pendingState.get(entityId);
+    const displayedStateObj = pending && reading.availabilityClass === "available" && confirmedStateObj
+      ? { ...confirmedStateObj, state: pending.value }
+      : confirmedStateObj;
+    const action = getControlAction(entityId, displayedStateObj, allowSelect, allowClimate);
+    const active = isControlActive(displayedStateObj);
     const row = document.createElement("button");
     row.type = "button";
-    row.className = `equipment-tile ${reading.availabilityClass}${active ? " active" : ""}${pending ? " pending" : ""}`;
-    row.disabled = !action || pending;
+    row.className = `equipment-tile ${reading.availabilityClass}${active ? " active" : ""}`;
+    row.disabled = !action;
     row.setAttribute("aria-pressed", String(active));
-    row.setAttribute("aria-busy", String(pending));
     row.innerHTML = `<div class="equipment-icon equipment-icon-${icon}" aria-hidden="true"><ha-icon icon="mdi:power"></ha-icon></div><div class="equipment-copy"><div class="equipment-name"></div><div class="equipment-value"></div></div><span class="status-dot"></span>`;
     row.querySelector(".equipment-name").textContent = label;
-    row.querySelector(".equipment-value").textContent = reading.availabilityClass === "available" ? titleCase(reading.value) : reading.value;
+    row.querySelector(".equipment-value").textContent = reading.availabilityClass === "available" ? titleCase(displayedStateObj?.state ?? reading.value) : reading.value;
     row.setAttribute("aria-label", `${label}: ${row.querySelector(".equipment-value").textContent}`);
     row.addEventListener("click", () => this._activateControl(entityId, allowSelect, allowClimate));
     return row;
   }
 
   async _activateControl(entityId, allowSelect, allowClimate = false) {
-    if (this._pendingControls.has(entityId)) return;
-    const action = getControlAction(entityId, this._hass?.states?.[entityId], allowSelect, allowClimate);
+    const confirmedStateObj = this._hass?.states?.[entityId];
+    const pending = this._pendingState.get(entityId);
+    const displayedStateObj = pending && confirmedStateObj ? { ...confirmedStateObj, state: pending.value } : confirmedStateObj;
+    const action = getControlAction(entityId, displayedStateObj, allowSelect, allowClimate);
     if (!action || typeof this._hass?.callService !== "function") return;
-
-    this._pendingControls.add(entityId);
-    this._render();
+    if (pending?.value === action.requestedValue) return;
+    const request = this._pendingState.set(entityId, action.requestedValue);
     try {
       await this._hass.callService(action.domain, action.service, action.data);
     } catch (error) {
       console.error(`Aquard could not control ${entityId}`, error);
-    } finally {
-      this._pendingControls.delete(entityId);
-      this._render();
+      this._pendingState.clear(entityId, true, request);
     }
   }
 
   _renderTargetControl(control) {
     const formatted = formatTargetTemperature(control.target, control.unit, control.step);
-    const pendingDirection = this._pendingTarget?.direction;
     const decreaseDisabled = !getTargetTemperatureAdjustment(control, -1);
     const increaseDisabled = !getTargetTemperatureAdjustment(control, 1);
     return `<div class="target-control"><div class="target-label">${UI_TEXT.climateTarget}</div><div class="target-control-row">
-      <button class="target-button${pendingDirection === -1 ? " pending" : ""}" data-target-direction="-1" aria-label="Decrease target temperature" ${decreaseDisabled ? "disabled" : ""}>${renderTargetArrow("decrease")}</button>
+      <button class="target-button" data-target-direction="-1" aria-label="Decrease target temperature" ${decreaseDisabled ? "disabled" : ""}>${renderTargetArrow("decrease")}</button>
       <div class="target-display"><span class="target-number">${formatted.value}</span><span class="target-unit">${formatted.unit}</span></div>
-      <button class="target-button${pendingDirection === 1 ? " pending" : ""}" data-target-direction="1" aria-label="Increase target temperature" ${increaseDisabled ? "disabled" : ""}>${renderTargetArrow("increase")}</button>
+      <button class="target-button" data-target-direction="1" aria-label="Increase target temperature" ${increaseDisabled ? "disabled" : ""}>${renderTargetArrow("increase")}</button>
     </div></div>`;
   }
 
@@ -306,20 +302,15 @@ export class AquardCard extends HTMLElement {
     const entityId = this._config?.entities?.climate;
     const control = resolveTargetTemperature(this._hass, entityId);
     if (!control || typeof this._hass?.callService !== "function") return;
-    const localControl = this._pendingTarget?.entityId === entityId
-      ? { ...control, target: this._pendingTarget.value }
-      : control;
+    const key = this._targetPendingKey(entityId);
+    const localControl = { ...control, target: this._pendingState.resolve(key, control.target) };
     const adjustment = getTargetTemperatureAdjustment(localControl, direction);
     if (!adjustment) return;
 
-    this._clearTargetConfirmationTimer();
-    this._pendingTarget = {
-      entityId,
-      value: adjustment.temperature,
-      direction,
-      phase: "debounce",
-    };
-    this._render();
+    this._pendingState.set(key, adjustment.temperature, {
+      equals: (actual, requested) => numericValuesEqual(actual, requested, Math.max(0.000001, control.step / 1000)),
+      metadata: { entityId, direction, phase: "debounce" },
+    });
 
     clearTimeout(this._targetDebounceTimer);
     this._targetDebounceTimer = setTimeout(() => this._flushTargetTemperature(), TARGET_DEBOUNCE_MS);
@@ -328,48 +319,32 @@ export class AquardCard extends HTMLElement {
   async _flushTargetTemperature() {
     clearTimeout(this._targetDebounceTimer);
     this._targetDebounceTimer = null;
-    const request = this._pendingTarget;
-    if (!request || request.phase !== "debounce" || typeof this._hass?.callService !== "function") return;
-
-    request.phase = "confirming";
+    const entityId = this._config?.entities?.climate;
+    const key = this._targetPendingKey(entityId);
+    const request = this._pendingState.get(key);
+    if (!request || request.metadata?.phase !== "debounce" || typeof this._hass?.callService !== "function") return;
+    request.metadata.phase = "confirming";
     this._render();
     try {
       await this._hass.callService("climate", "set_temperature", {
-        entity_id: request.entityId,
+        entity_id: entityId,
         temperature: request.value,
       });
-      if (this._pendingTarget !== request) return;
-      this._targetConfirmationTimer = setTimeout(() => {
-        if (this._pendingTarget === request) {
-          this._pendingTarget = null;
-          this._targetConfirmationTimer = null;
-          this._render();
-        }
-      }, TARGET_CONFIRMATION_TIMEOUT_MS);
     } catch (error) {
-      console.error(`Aquard could not set target temperature for ${request.entityId}`, error);
-      if (this._pendingTarget === request) {
-        this._pendingTarget = null;
-        this._render();
-      }
+      console.error(`Aquard could not set target temperature for ${entityId}`, error);
+      this._pendingState.clear(key, true, request);
     }
   }
 
-  _reconcilePendingTarget() {
-    if (!this._pendingTarget) return;
-    if (this._pendingTarget.phase === "debounce") return;
-    const control = resolveTargetTemperature(this._hass, this._pendingTarget.entityId);
-    if (!control || Math.abs(control.target - this._pendingTarget.value) < 0.000001) {
-      clearTimeout(this._targetDebounceTimer);
-      this._targetDebounceTimer = null;
-      this._clearTargetConfirmationTimer();
-      this._pendingTarget = null;
-    }
+  _reconcilePendingState() {
+    for (const [entityId, stateObj] of Object.entries(this._hass?.states ?? {})) this._pendingState.reconcile(entityId, stateObj.state);
+    const entityId = this._config?.entities?.climate;
+    const target = resolveTargetTemperature(this._hass, entityId);
+    if (target) this._pendingState.reconcile(this._targetPendingKey(entityId), target.target);
   }
 
-  _clearTargetConfirmationTimer() {
-    clearTimeout(this._targetConfirmationTimer);
-    this._targetConfirmationTimer = null;
+  _targetPendingKey(entityId) {
+    return `target:${entityId}`;
   }
 
   _createMetric(label, icon, reading, evaluation) {
